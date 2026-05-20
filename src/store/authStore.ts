@@ -9,6 +9,7 @@ interface AuthState {
   activeOrg: OrgMembershipDto | null;
 
   setAuth: (response: AuthResponse) => void;
+  setAuthWithOrg: (response: AuthResponse, org: OrgMembershipDto | null) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
   setActiveOrg: (org: OrgMembershipDto | null) => void;
   logout: () => void;
@@ -34,6 +35,20 @@ export const useAuthStore = create<AuthState>()(
           accessToken: response.accessToken,
           refreshToken: response.refreshToken,
           activeOrg: get().activeOrg,
+        });
+      },
+
+      setAuthWithOrg: (response, org) => {
+        const user: UserDto = {
+          id: response.userId,
+          email: response.email,
+          displayName: response.displayName,
+        };
+        set({
+          user,
+          accessToken: response.accessToken,
+          refreshToken: response.refreshToken,
+          activeOrg: org,
         });
       },
 

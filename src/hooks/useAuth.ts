@@ -7,6 +7,7 @@ import type {
   LoginRequest,
   RegisterUserRequest,
   RegisterOrganizationRequest,
+  OrgMembershipDto,
 } from "@/types/auth";
 
 export function useLogin() {
@@ -15,22 +16,19 @@ export function useLogin() {
   return useMutation({
     mutationFn: (data: LoginRequest) => authApi.login(data),
     onSuccess: async (response) => {
-      useAuthStore.getState().setAuth(response);
-
-      if (response.hasOrganization) {
-        try {
-          const orgs = await authApi.getMyOrganizations();
-          if (orgs.length > 0) {
-            useAuthStore.getState().setActiveOrg(orgs[0]!);
-            navigate("/tournaments");
-            return;
-          }
-        } catch {
-          // org fetch failed — fall through to onboarding
-        }
+      let orgs: OrgMembershipDto[] = [];
+      try {
+        orgs = await authApi.getMyOrganizations(response.accessToken);
+      } catch {
+        // ignore, orgs stays empty
       }
 
-      navigate("/onboarding");
+      useAuthStore.getState().setAuthWithOrg(
+        response,
+        orgs.length > 0 ? orgs[0]! : null,
+      );
+
+      navigate(orgs.length > 0 ? "/tournaments" : "/onboarding");
     },
     onError: (error) => {
       if (axios.isAxiosError(error) && error.response?.status === 403) {
@@ -46,22 +44,19 @@ export function useRegister() {
   return useMutation({
     mutationFn: (data: RegisterUserRequest) => authApi.register(data),
     onSuccess: async (response) => {
-      useAuthStore.getState().setAuth(response);
-
-      if (response.hasOrganization) {
-        try {
-          const orgs = await authApi.getMyOrganizations();
-          if (orgs.length > 0) {
-            useAuthStore.getState().setActiveOrg(orgs[0]!);
-            navigate("/tournaments");
-            return;
-          }
-        } catch {
-          // fall through
-        }
+      let orgs: OrgMembershipDto[] = [];
+      try {
+        orgs = await authApi.getMyOrganizations(response.accessToken);
+      } catch {
+        // ignore, orgs stays empty
       }
 
-      navigate("/onboarding");
+      useAuthStore.getState().setAuthWithOrg(
+        response,
+        orgs.length > 0 ? orgs[0]! : null,
+      );
+
+      navigate(orgs.length > 0 ? "/tournaments" : "/onboarding");
     },
   });
 }
@@ -73,22 +68,19 @@ export function useRegisterOrganization() {
     mutationFn: (data: RegisterOrganizationRequest) =>
       authApi.registerOrganization(data),
     onSuccess: async (response) => {
-      useAuthStore.getState().setAuth(response);
-
-      if (response.hasOrganization) {
-        try {
-          const orgs = await authApi.getMyOrganizations();
-          if (orgs.length > 0) {
-            useAuthStore.getState().setActiveOrg(orgs[0]!);
-            navigate("/tournaments");
-            return;
-          }
-        } catch {
-          // fall through
-        }
+      let orgs: OrgMembershipDto[] = [];
+      try {
+        orgs = await authApi.getMyOrganizations(response.accessToken);
+      } catch {
+        // ignore, orgs stays empty
       }
 
-      navigate("/onboarding");
+      useAuthStore.getState().setAuthWithOrg(
+        response,
+        orgs.length > 0 ? orgs[0]! : null,
+      );
+
+      navigate(orgs.length > 0 ? "/tournaments" : "/onboarding");
     },
   });
 }

@@ -66,8 +66,14 @@ export async function inviteUser(data: InviteUserRequest): Promise<void> {
   await apiClient.post("/auth/invite", data);
 }
 
-export async function getMyOrganizations(): Promise<OrgMembershipDto[]> {
-  const response =
-    await apiClient.get<OrgMembershipDto[]>("/auth/my-organizations");
+export async function getMyOrganizations(
+  accessToken?: string,
+): Promise<OrgMembershipDto[]> {
+  const response = await apiClient.get<OrgMembershipDto[]>(
+    "/auth/my-organizations",
+    accessToken
+      ? { headers: { Authorization: `Bearer ${accessToken}` } }
+      : undefined,
+  );
   return response.data;
 }

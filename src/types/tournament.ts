@@ -41,6 +41,7 @@ export interface CreateTournamentRequest {
   minParticipants?: number | null;
   sportCode: string;
   formatType: string;
+  advancingPerGroup?: number;
   seeding: boolean;
   visibility: string;
 }

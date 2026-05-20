@@ -6,6 +6,7 @@ import {
   User,
   ChevronDown,
   LayoutDashboard,
+  ArrowLeftRight,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useLogout } from "@/hooks/useAuth";
@@ -37,7 +38,7 @@ export function AppLayout() {
 
   const { data: memberships } = useQuery({
     queryKey: ["my-organizations"],
-    queryFn: getMyOrganizations,
+    queryFn: () => getMyOrganizations(),
   });
 
   if (!activeOrg) {
@@ -60,7 +61,14 @@ export function AppLayout() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
             <Trophy className="h-4 w-4 text-primary-foreground" />
           </div>
-          <span className="font-semibold">Turnierplaner</span>
+          <div className="flex flex-col">
+            <span className="font-semibold">Turnierplaner</span>
+            {activeOrg && (
+              <span className="text-xs text-muted-foreground">
+                {activeOrg.organizationName}
+              </span>
+            )}
+          </div>
         </div>
 
         {memberships && memberships.length > 1 && (
@@ -121,9 +129,12 @@ export function AppLayout() {
                 <Avatar className="h-7 w-7">
                   <AvatarFallback className="text-xs">{initials}</AvatarFallback>
                 </Avatar>
-                <span className="flex-1 truncate text-left text-sm">
-                  {user?.displayName}
-                </span>
+                <div className="flex flex-1 flex-col truncate text-left">
+                  <span className="truncate text-sm">{user?.displayName}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {user?.email}
+                  </span>
+                </div>
                 <ChevronDown className="h-4 w-4 opacity-50" />
               </Button>
             </DropdownMenuTrigger>
@@ -132,12 +143,21 @@ export function AppLayout() {
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium">{user?.displayName}</p>
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
+                  {activeOrg && (
+                    <p className="text-xs text-muted-foreground">
+                      Org: {activeOrg.organizationName}
+                    </p>
+                  )}
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate("/account")}>
                 <User className="mr-2 h-4 w-4" />
                 Konto bearbeiten
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate("/onboarding")}>
+                <ArrowLeftRight className="mr-2 h-4 w-4" />
+                Organisation wechseln
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

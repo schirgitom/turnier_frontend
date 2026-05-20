@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Building2, Clock, Loader2, LogOut } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useLogout } from "@/hooks/useAuth";
@@ -20,6 +20,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 
 function toSlug(value: string): string {
   return value
@@ -38,6 +41,12 @@ const createOrgSchema = z.object({
 });
 
 type CreateOrgForm = z.infer<typeof createOrgSchema>;
+
+const roleLabels: Record<string, string> = {
+  Admin: "Admin",
+  Owner: "Inhaber",
+  Member: "Mitglied",
+};
 
 function LogoutButton() {
   const logoutMutation = useLogout();
@@ -61,6 +70,11 @@ export function OnboardingPage() {
   const user = useAuthStore((s) => s.user);
   const [mode, setMode] = useState<"choose" | "create" | "wait">("choose");
 
+  const { data: orgs, isLoading: orgsLoading } = useQuery({
+    queryKey: ["my-organizations"],
+    queryFn: () => getMyOrganizations(),
+  });
+
   const {
     register,
     handleSubmit,
@@ -80,9 +94,9 @@ export function OnboardingPage() {
   const createMutation = useMutation({
     mutationFn: (data: CreateOrgForm) => createOrganization(data),
     onSuccess: async () => {
-      const orgs = await getMyOrganizations();
-      if (orgs.length > 0) {
-        setActiveOrg(orgs[0]!);
+      const freshOrgs = await getMyOrganizations();
+      if (freshOrgs.length > 0) {
+        setActiveOrg(freshOrgs[freshOrgs.length - 1]!);
       }
       navigate("/tournaments");
     },
@@ -94,6 +108,7 @@ export function OnboardingPage() {
   };
 
   const displayName = user?.displayName || "";
+  const hasOrgs = orgs && orgs.length > 0;
 
   if (mode === "choose") {
     return (
@@ -103,49 +118,128 @@ export function OnboardingPage() {
         </div>
         <div className="w-full max-w-2xl space-y-6">
           <div className="text-center">
-            <h1 className="text-2xl font-bold">
-              {displayName
-                ? `Willkommen, ${displayName}!`
-                : "Willkommen!"}
-            </h1>
-            <p className="mt-2 text-muted-foreground">
-              Du bist noch keiner Organisation zugeordnet. Wie möchtest du
-              fortfahren?
-            </p>
+            {orgsLoading ? (
+              <>
+                <Skeleton className="mx-auto mb-2 h-8 w-64" />
+                <Skeleton className="mx-auto h-5 w-80" />
+              </>
+            ) : hasOrgs ? (
+              <>
+                <h1 className="text-2xl font-bold">Organisation wählen</h1>
+                <p className="mt-2 text-muted-foreground">
+                  {displayName
+                    ? `Hallo ${displayName}! Wähle eine Organisation oder erstelle eine neue.`
+                    : "Wähle eine Organisation oder erstelle eine neue."}
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold">
+                  {displayName
+                    ? `Willkommen, ${displayName}!`
+                    : "Willkommen!"}
+                </h1>
+                <p className="mt-2 text-muted-foreground">
+                  Du bist noch keiner Organisation zugeordnet. Wie möchtest du
+                  fortfahren?
+                </p>
+              </>
+            )}
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Card
-              className="cursor-pointer transition-shadow hover:shadow-md"
-              onClick={() => {
-                setMode("create");
-                setValue("slug", "");
-              }}
-            >
-              <CardHeader className="text-center">
-                <Building2 className="mx-auto h-10 w-10 text-primary" />
-                <CardTitle className="text-lg">
-                  Neue Organisation erstellen
-                </CardTitle>
-                <CardDescription>
-                  Erstelle eine eigene Organisation und lade dein Team ein.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-            <Card
-              className="cursor-pointer transition-shadow hover:shadow-md"
-              onClick={() => setMode("wait")}
-            >
-              <CardHeader className="text-center">
-                <Clock className="mx-auto h-10 w-10 text-muted-foreground" />
-                <CardTitle className="text-lg">
-                  Warte auf Einladung
-                </CardTitle>
-                <CardDescription>
-                  Warte, bis ein Admin dich zu einer Organisation einlädt.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </div>
+
+          {orgsLoading && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <Card key={i}>
+                  <CardHeader className="flex flex-row items-center gap-3">
+                    <Skeleton className="h-10 w-10 rounded-lg" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-5 w-32" />
+                      <Skeleton className="h-4 w-16" />
+                    </div>
+                  </CardHeader>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {!orgsLoading && hasOrgs && (
+            <>
+              <div className="space-y-3">
+                <h2 className="text-sm font-medium text-muted-foreground">
+                  Deine Organisationen
+                </h2>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {orgs.map((org) => (
+                    <Card
+                      key={org.organizationId}
+                      className="cursor-pointer transition-shadow hover:shadow-md"
+                      onClick={() => {
+                        setActiveOrg(org);
+                        navigate("/tournaments");
+                      }}
+                    >
+                      <CardHeader className="flex flex-row items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <Building2 className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1">
+                          <CardTitle className="text-base">
+                            {org.organizationName}
+                          </CardTitle>
+                          <Badge variant="secondary" className="mt-1">
+                            {roleLabels[org.role] ?? org.role}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <Separator className="flex-1" />
+                <span className="text-sm text-muted-foreground">oder</span>
+                <Separator className="flex-1" />
+              </div>
+            </>
+          )}
+
+          {!orgsLoading && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Card
+                className="cursor-pointer transition-shadow hover:shadow-md"
+                onClick={() => {
+                  setMode("create");
+                  setValue("slug", "");
+                }}
+              >
+                <CardHeader className="text-center">
+                  <Building2 className="mx-auto h-10 w-10 text-primary" />
+                  <CardTitle className="text-lg">
+                    Neue Organisation erstellen
+                  </CardTitle>
+                  <CardDescription>
+                    Erstelle eine eigene Organisation und lade dein Team ein.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+              <Card
+                className="cursor-pointer transition-shadow hover:shadow-md"
+                onClick={() => setMode("wait")}
+              >
+                <CardHeader className="text-center">
+                  <Clock className="mx-auto h-10 w-10 text-muted-foreground" />
+                  <CardTitle className="text-lg">
+                    Warte auf Einladung
+                  </CardTitle>
+                  <CardDescription>
+                    Warte, bis ein Admin dich zu einer Organisation einlädt.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            </div>
+          )}
         </div>
       </div>
     );

@@ -58,7 +58,7 @@ export function TournamentsPage() {
           <h1 className="text-2xl font-bold">Turniere</h1>
           <p className="text-muted-foreground">
             {data
-              ? `${data.total} Turnier${data.total !== 1 ? "e" : ""}`
+              ? `${data.total ?? 0} Turnier${(data.total ?? 0) !== 1 ? "e" : ""}`
               : "Verwalte deine Turniere und Veranstaltungen."}
           </p>
         </div>
