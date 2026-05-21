@@ -1,3 +1,5 @@
+export type ParticipantType = "Single" | "Double" | "Team";
+
 export enum TournamentStatus {
   Draft = "Draft",
   Published = "Published",
@@ -24,6 +26,7 @@ export interface TournamentDto {
   minParticipants: number | null;
   sportCode: string;
   formatType: string;
+  participantType: ParticipantType;
   seeding: boolean;
   visibility: string;
   createdAt: string;
@@ -41,6 +44,7 @@ export interface CreateTournamentRequest {
   minParticipants?: number | null;
   sportCode: string;
   formatType: string;
+  participantType: string;
   advancingPerGroup?: number;
   seeding: boolean;
   visibility: string;

@@ -15,7 +15,7 @@ export function useLogin() {
 
   return useMutation({
     mutationFn: (data: LoginRequest) => authApi.login(data),
-    onSuccess: async (response) => {
+    onSuccess: async (response, variables) => {
       let orgs: OrgMembershipDto[] = [];
       try {
         orgs = await authApi.getMyOrganizations(response.accessToken);
@@ -23,12 +23,23 @@ export function useLogin() {
         // ignore, orgs stays empty
       }
 
-      useAuthStore.getState().setAuthWithOrg(
-        response,
-        orgs.length > 0 ? orgs[0]! : null,
-      );
-
-      navigate(orgs.length > 0 ? "/tournaments" : "/onboarding");
+      if (orgs.length > 0) {
+        let orgResponse = response;
+        try {
+          orgResponse = await authApi.login({
+            email: variables.email,
+            password: variables.password,
+            organizationId: orgs[0]!.organizationId,
+          });
+        } catch {
+          // fall back to initial token without org claim
+        }
+        useAuthStore.getState().setAuthWithOrg(orgResponse, orgs[0]!);
+        navigate("/tournaments");
+      } else {
+        useAuthStore.getState().setAuthWithOrg(response, null);
+        navigate("/onboarding");
+      }
     },
     onError: (error) => {
       if (axios.isAxiosError(error) && error.response?.status === 403) {

@@ -8,11 +8,14 @@ import {
   Loader2,
   ArrowLeft,
   ArrowRight,
-  Users,
-  Swords,
   Trophy,
-  Layers,
   Check,
+  LayoutGrid,
+  Shield,
+  Shuffle,
+  Layers,
+  User,
+  Users,
 } from "lucide-react";
 import { createTournament } from "@/api/tournaments";
 import type { CreateTournamentRequest } from "@/types/tournament";
@@ -48,33 +51,52 @@ function toSlug(value: string): string {
     .replace(/^-|-$/g, "");
 }
 
-const stepLabels = ["Grundlagen", "Zeitraum & Teilnehmer", "Format & Einstellungen"];
+const stepLabels = ["Basics", "Zeitraum", "Format", "Einstellungen"];
 
-const sportOptions = [
-  { value: "table_tennis", label: "Tischtennis" },
-  { value: "tennis", label: "Tennis" },
-  { value: "badminton", label: "Badminton" },
-  { value: "volleyball", label: "Volleyball" },
-  { value: "football", label: "Fußball" },
-  { value: "basketball", label: "Basketball" },
-  { value: "other", label: "Sonstiges" },
+const SPORTS = [
+  { code: "table_tennis", label: "Tischtennis" },
+  { code: "tennis",       label: "Tennis" },
+  { code: "badminton",    label: "Badminton" },
+  { code: "volleyball",   label: "Volleyball" },
+  { code: "football",     label: "Fußball" },
+  { code: "basketball",   label: "Basketball" },
+  { code: "handball",     label: "Handball" },
+  { code: "other",        label: "Sonstiges" },
 ];
+
+const participantTypeOptions = [
+  { value: "Single", label: "Einzelspieler", icon: User },
+  { value: "Double", label: "Doppel",        icon: Users },
+  { value: "Team",   label: "Team",          icon: Shield },
+] as const;
 
 const formatOptions = [
   {
-    value: "group",
-    label: "Nur Gruppenphase",
-    description: "Jeder spielt gegen jeden in seiner Gruppe. Kein Finale.",
-    icon: Users,
+    value: "RoundRobin",
+    label: "Gruppenphase (Round-Robin)",
+    description: "Jeder spielt gegen jeden. Kein Finale.",
+    icon: LayoutGrid,
   },
   {
-    value: "elimination",
-    label: "Nur K.O.-System",
+    value: "SingleElimination",
+    label: "K.O.-System",
     description: "Direkte Ausscheidung. Wer verliert, scheidet aus.",
-    icon: Swords,
+    icon: Trophy,
   },
   {
-    value: "group_elimination",
+    value: "DoubleElimination",
+    label: "Doppelte Ausscheidung",
+    description: "Erst nach zwei Niederlagen ausgeschieden.",
+    icon: Shield,
+  },
+  {
+    value: "Swiss",
+    label: "Schweizer System",
+    description: "Gleichstarke Gegner werden jede Runde neu gepaart.",
+    icon: Shuffle,
+  },
+  {
+    value: "GroupAndElimination",
     label: "Gruppenphase + K.O.",
     description: "Erst Gruppenspiele, dann Finalrunde mit den Besten.",
     icon: Layers,
@@ -91,42 +113,39 @@ const createSchema = z
     startTime: z.string().min(1, "Startzeit ist erforderlich"),
     multiDay: z.boolean(),
     endDate: z.string(),
-    maxParticipants: z.union([z.string(), z.number()]).optional().nullable(),
-    minParticipants: z.union([z.string(), z.number()]).optional().nullable(),
+    minParticipants: z.coerce.number().min(2, "Mindestens 2 Teilnehmer erforderlich"),
+    maxParticipants: z.coerce.number().min(2, "Mindestens 2 Teilnehmer erforderlich"),
     sportCode: z.string().min(1, "Sportart ist erforderlich"),
+    participantType: z.enum(["Single", "Double", "Team"], {
+      errorMap: () => ({ message: "Bitte Teilnehmertyp wählen" }),
+    }),
     formatType: z.string().min(1, "Format ist erforderlich"),
     advancingPerGroup: z.number().min(1).max(8).nullable(),
     seeding: z.boolean(),
     visibility: z.string().min(1, "Sichtbarkeit ist erforderlich"),
   })
   .refine(
+    (d) => d.maxParticipants >= d.minParticipants,
+    { message: "Max muss >= Min sein", path: ["maxParticipants"] },
+  )
+  .refine(
     (d) => !d.multiDay || d.endDate.length > 0,
-    {
-      message: "Enddatum ist erforderlich",
-      path: ["endDate"],
-    },
+    { message: "Enddatum ist erforderlich", path: ["endDate"] },
   )
   .refine(
     (d) => !d.multiDay || d.endDate >= d.startDate,
-    {
-      message: "Enddatum muss nach dem Startdatum liegen",
-      path: ["endDate"],
-    },
+    { message: "Enddatum muss nach dem Startdatum liegen", path: ["endDate"] },
   )
   .refine(
-    (d) =>
-      d.formatType !== "group_elimination" || d.advancingPerGroup !== null,
-    {
-      message: "Bitte wähle, wie viele Teams pro Gruppe weiterkommen",
-      path: ["advancingPerGroup"],
-    },
+    (d) => d.formatType !== "GroupAndElimination" || d.advancingPerGroup !== null,
+    { message: "Bitte Anzahl der Weiterkommer angeben", path: ["advancingPerGroup"] },
   );
 
 type CreateForm = z.infer<typeof createSchema>;
 
-const step1Fields = ["name", "slug"] as const;
-const step2Fields = ["startDate", "startTime"] as const;
-const step3Fields = ["sportCode", "formatType", "visibility"] as const;
+const step1Fields = ["name", "slug", "sportCode"] as const;
+const step2Fields = ["startDate", "startTime", "minParticipants", "maxParticipants"] as const;
+const step3Fields = ["participantType", "formatType"] as const;
 
 function StepIndicator({ current }: { current: number }) {
   return (
@@ -137,12 +156,7 @@ function StepIndicator({ current }: { current: number }) {
         return (
           <div key={label} className="flex items-center gap-2">
             {i > 0 && (
-              <div
-                className={cn(
-                  "h-px w-8 sm:w-12",
-                  done ? "bg-primary" : "bg-border",
-                )}
-              />
+              <div className={cn("h-px w-8 sm:w-12", done ? "bg-primary" : "bg-border")} />
             )}
             <div className="flex items-center gap-2">
               <div
@@ -202,6 +216,8 @@ export function CreateTournamentPage() {
       startTime: "",
       multiDay: false,
       endDate: "",
+      minParticipants: 2,
+      maxParticipants: 32,
       seeding: false,
       sportCode: "",
       formatType: "",
@@ -218,6 +234,7 @@ export function CreateTournamentPage() {
   const startDate = useWatch({ control, name: "startDate" }) ?? "";
   const multiDay = useWatch({ control, name: "multiDay" }) ?? false;
   const sportCode = useWatch({ control, name: "sportCode" }) ?? "";
+  const participantType = useWatch({ control, name: "participantType" });
   const formatType = useWatch({ control, name: "formatType" }) ?? "";
   const advancingPerGroup = useWatch({ control, name: "advancingPerGroup" });
   const visibility = useWatch({ control, name: "visibility" }) ?? "Private";
@@ -253,12 +270,15 @@ export function CreateTournamentPage() {
       startDate: data.startDate,
       endDate: data.endDate,
       sportCode: data.sportCode,
+      participantType: data.participantType,
       formatType: data.formatType,
       seeding: data.seeding,
       visibility: data.visibility,
-      ...(data.minParticipants ? { minParticipants: Number(data.minParticipants) } : {}),
-      ...(data.maxParticipants ? { maxParticipants: Number(data.maxParticipants) } : {}),
-      ...(data.advancingPerGroup ? { advancingPerGroup: Number(data.advancingPerGroup) } : {}),
+      minParticipants: data.minParticipants,
+      maxParticipants: data.maxParticipants,
+      ...(data.formatType === "GroupAndElimination" && data.advancingPerGroup
+        ? { advancingPerGroup: data.advancingPerGroup }
+        : {}),
     };
     mutation.mutate(payload);
   };
@@ -278,15 +298,40 @@ export function CreateTournamentPage() {
 
       <Card>
         <form onSubmit={handleSubmit(onSubmit)}>
+
           {step === 0 && (
             <>
               <CardHeader>
-                <CardTitle>Grundlagen</CardTitle>
+                <CardTitle>Basics</CardTitle>
                 <CardDescription>
-                  Gib deinem Turnier einen Namen und eine Beschreibung.
+                  Wähle Sportart und gib dem Turnier einen Namen.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Sportart</Label>
+                  <Select
+                    value={sportCode}
+                    onValueChange={(v) => setValue("sportCode", v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sportart auswählen" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SPORTS.map((s) => (
+                        <SelectItem key={s.code} value={s.code}>
+                          {s.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.sportCode && (
+                    <p className="text-sm text-destructive">
+                      {errors.sportCode.message}
+                    </p>
+                  )}
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="name">Name</Label>
                   <Input
@@ -306,6 +351,7 @@ export function CreateTournamentPage() {
                     </p>
                   )}
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="slug">Slug (URL)</Label>
                   <Input id="slug" {...register("slug")} />
@@ -324,6 +370,7 @@ export function CreateTournamentPage() {
                     </p>
                   )}
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="description">Beschreibung (optional)</Label>
                   <textarea
@@ -333,6 +380,7 @@ export function CreateTournamentPage() {
                     {...register("description")}
                   />
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="location">Ort</Label>
                   <Input
@@ -357,11 +405,7 @@ export function CreateTournamentPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="startDate">Startdatum</Label>
-                    <Input
-                      id="startDate"
-                      type="date"
-                      {...register("startDate")}
-                    />
+                    <Input id="startDate" type="date" {...register("startDate")} />
                     {errors.startDate && (
                       <p className="text-sm text-destructive">
                         {errors.startDate.message}
@@ -370,11 +414,7 @@ export function CreateTournamentPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="startTime">Startzeit</Label>
-                    <Input
-                      id="startTime"
-                      type="time"
-                      {...register("startTime")}
-                    />
+                    <Input id="startTime" type="time" {...register("startTime")} />
                     {errors.startTime && (
                       <p className="text-sm text-destructive">
                         {errors.startTime.message}
@@ -389,9 +429,7 @@ export function CreateTournamentPage() {
                     checked={multiDay}
                     onChange={(e) => {
                       setValue("multiDay", e.target.checked);
-                      if (!e.target.checked) {
-                        setValue("endDate", startDate);
-                      }
+                      if (!e.target.checked) setValue("endDate", startDate);
                     }}
                     className="h-4 w-4 rounded border"
                   />
@@ -403,9 +441,7 @@ export function CreateTournamentPage() {
                 <div
                   className={cn(
                     "grid transition-all duration-300 ease-in-out",
-                    multiDay
-                      ? "grid-rows-[1fr] opacity-100"
-                      : "grid-rows-[0fr] opacity-0",
+                    multiDay ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
                   )}
                 >
                   <div className="overflow-hidden">
@@ -428,28 +464,32 @@ export function CreateTournamentPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="minParticipants">
-                      Min. Teilnehmer (optional)
-                    </Label>
+                    <Label htmlFor="minParticipants">Min. Teilnehmer</Label>
                     <Input
                       id="minParticipants"
                       type="number"
                       min={2}
-                      placeholder="z.B. 4"
                       {...register("minParticipants")}
                     />
+                    {errors.minParticipants && (
+                      <p className="text-sm text-destructive">
+                        {errors.minParticipants.message}
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="maxParticipants">
-                      Max. Teilnehmer (optional)
-                    </Label>
+                    <Label htmlFor="maxParticipants">Max. Teilnehmer</Label>
                     <Input
                       id="maxParticipants"
                       type="number"
                       min={2}
-                      placeholder="z.B. 32"
                       {...register("maxParticipants")}
                     />
+                    {errors.maxParticipants && (
+                      <p className="text-sm text-destructive">
+                        {errors.maxParticipants.message}
+                      </p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -459,45 +499,51 @@ export function CreateTournamentPage() {
           {step === 2 && (
             <>
               <CardHeader>
-                <CardTitle>Format & Einstellungen</CardTitle>
+                <CardTitle>Teilnehmer & Format</CardTitle>
                 <CardDescription>
-                  Wähle Sportart, Turnierformat und Sichtbarkeit.
+                  Wähle Teilnehmertyp und Turnierformat.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {mutation.isError && (
-                  <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                    {getApiErrorMessage(mutation.error)}
+                <div className="space-y-3">
+                  <Label>Teilnehmertyp</Label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {participantTypeOptions.map((opt) => {
+                      const Icon = opt.icon;
+                      const selected = participantType === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setValue("participantType", opt.value)}
+                          className={cn(
+                            "flex flex-col items-center gap-2 rounded-lg border-2 p-4 text-center transition-colors",
+                            selected
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:border-primary/50",
+                          )}
+                        >
+                          <Icon
+                            className={cn(
+                              "h-6 w-6",
+                              selected ? "text-primary" : "text-muted-foreground",
+                            )}
+                          />
+                          <span className="text-sm font-medium">{opt.label}</span>
+                        </button>
+                      );
+                    })}
                   </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label>Sportart</Label>
-                  <Select
-                    value={sportCode}
-                    onValueChange={(v) => setValue("sportCode", v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Sportart auswählen" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sportOptions.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>
-                          {s.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.sportCode && (
+                  {errors.participantType && (
                     <p className="text-sm text-destructive">
-                      {errors.sportCode.message}
+                      {errors.participantType.message}
                     </p>
                   )}
                 </div>
 
                 <div className="space-y-3">
                   <Label>Turnierformat</Label>
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 grid-cols-2">
                     {formatOptions.map((opt) => {
                       const Icon = opt.icon;
                       const selected = formatType === opt.value;
@@ -507,7 +553,7 @@ export function CreateTournamentPage() {
                           type="button"
                           onClick={() => {
                             setValue("formatType", opt.value);
-                            if (opt.value === "group_elimination") {
+                            if (opt.value === "GroupAndElimination") {
                               setAdvancingMode("2");
                               setValue("advancingPerGroup", 2);
                             } else {
@@ -524,14 +570,10 @@ export function CreateTournamentPage() {
                           <Icon
                             className={cn(
                               "h-6 w-6",
-                              selected
-                                ? "text-primary"
-                                : "text-muted-foreground",
+                              selected ? "text-primary" : "text-muted-foreground",
                             )}
                           />
-                          <span className="text-sm font-medium">
-                            {opt.label}
-                          </span>
+                          <span className="text-sm font-medium">{opt.label}</span>
                           <span className="text-xs text-muted-foreground">
                             {opt.description}
                           </span>
@@ -548,14 +590,14 @@ export function CreateTournamentPage() {
                   <div
                     className={cn(
                       "grid transition-all duration-300 ease-in-out",
-                      formatType === "group_elimination"
+                      formatType === "GroupAndElimination"
                         ? "grid-rows-[1fr] opacity-100"
                         : "grid-rows-[0fr] opacity-0",
                     )}
                   >
                     <div className="overflow-hidden">
                       <div className="space-y-3 rounded-lg border bg-muted/30 p-4 mt-3">
-                        <Label>Wer kommt weiter?</Label>
+                        <Label>Wer kommt weiter ins K.O.?</Label>
                         <div className="space-y-2">
                           {(
                             [
@@ -629,6 +671,24 @@ export function CreateTournamentPage() {
                     </div>
                   </div>
                 </div>
+              </CardContent>
+            </>
+          )}
+
+          {step === 3 && (
+            <>
+              <CardHeader>
+                <CardTitle>Einstellungen</CardTitle>
+                <CardDescription>
+                  Konfiguriere Sichtbarkeit und weitere Optionen.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {mutation.isError && (
+                  <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                    {getApiErrorMessage(mutation.error)}
+                  </div>
+                )}
 
                 <div className="space-y-3">
                   <Label>Sichtbarkeit</Label>
@@ -664,9 +724,7 @@ export function CreateTournamentPage() {
                     className="h-4 w-4 rounded border"
                   />
                   <div>
-                    <span className="text-sm font-medium">
-                      Setzliste verwenden
-                    </span>
+                    <span className="text-sm font-medium">Setzliste verwenden</span>
                     <p className="text-xs text-muted-foreground">
                       Teilnehmer werden nach Stärke gesetzt
                     </p>
@@ -685,7 +743,7 @@ export function CreateTournamentPage() {
             ) : (
               <div />
             )}
-            {step < 2 ? (
+            {step < 3 ? (
               <Button type="button" onClick={goNext}>
                 Weiter
                 <ArrowRight className="ml-2 h-4 w-4" />

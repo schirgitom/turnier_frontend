@@ -175,8 +175,12 @@ export function OnboardingPage() {
                       key={org.organizationId}
                       className="cursor-pointer transition-shadow hover:shadow-md"
                       onClick={() => {
-                        setActiveOrg(org);
-                        navigate("/tournaments");
+                        navigate("/login", {
+                          state: {
+                            message:
+                              "Bitte erneut anmelden um die Organisation zu wechseln.",
+                          },
+                        });
                       }}
                     >
                       <CardHeader className="flex flex-row items-center gap-3">

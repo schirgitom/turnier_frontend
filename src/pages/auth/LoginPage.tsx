@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -26,6 +26,9 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage() {
   const loginMutation = useLogin();
+  const location = useLocation();
+  const stateMessage = (location.state as { message?: string } | null)
+    ?.message;
   const {
     register,
     handleSubmit,
@@ -48,6 +51,11 @@ export function LoginPage() {
       </CardHeader>
       <form onSubmit={handleSubmit(onSubmit)}>
         <CardContent className="space-y-4">
+          {stateMessage && (
+            <div className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+              {stateMessage}
+            </div>
+          )}
           {loginMutation.isError && (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {getApiErrorMessage(loginMutation.error)}

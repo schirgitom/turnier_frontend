@@ -4,7 +4,9 @@
       "Bash(npm install *)",
       "Bash(npm view *)",
       "Bash(npx tsc *)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(dotnet build *)",
+      "Bash(dotnet test *)"
     ]
   }
 }

@@ -1,17 +1,28 @@
 export interface ParticipantDto {
   id: string;
-  name: string;
-  email: string;
+  firstName: string;
+  lastName: string;
+  dateOfBirth?: string;
+  phoneNumber?: string;
+  notes?: string;
+  userId?: string;
 }
 
 export interface CreateParticipantRequest {
-  name: string;
-  email: string;
+  firstName: string;
+  lastName: string;
+  dateOfBirth?: string;
+  phoneNumber?: string;
+  notes?: string;
+  userId?: string;
 }
 
 export interface UpdateParticipantRequest {
-  name?: string;
-  email?: string;
+  firstName?: string;
+  lastName?: string;
+  dateOfBirth?: string;
+  phoneNumber?: string;
+  notes?: string;
 }
 
 export interface PaginatedResponse<T> {
