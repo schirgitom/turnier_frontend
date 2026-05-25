@@ -1,45 +1,64 @@
-export enum PhaseType {
-  Group = "Group",
-  SingleElimination = "SingleElimination",
-  DoubleElimination = "DoubleElimination",
-  Swiss = "Swiss",
-  RoundRobin = "RoundRobin",
+export interface AddGroupPhaseRequest {
+  phaseOrder: number;
+  name: string;
+  numberOfGroups: number;
+  qualifiersPerGroup: number;
+  groupFormat: string;
 }
 
-export interface PhaseDto {
+export interface AddEliminationPhaseRequest {
+  phaseOrder: number;
+  name: string;
+  eliminationFormat: string;
+  hasThirdPlaceMatch: boolean;
+}
+
+export interface GroupPhaseResponse {
   id: string;
+  phaseOrder: number;
+  name: string;
+  status: string;
+  numberOfGroups: number;
+  participantsPerGroup: number;
+  qualifiersPerGroup: number;
+  qualifiersCount: number;
+  groupFormat: string;
+  participantCount: number;
+  groups: GroupResponse[];
+}
+
+export interface GroupResponse {
+  id: string;
+  name: string;
+}
+
+export interface EliminationPhaseResponse {
+  id: string;
+  phaseOrder: number;
+  name: string;
+  status: string;
+  eliminationFormat: string;
+  hasThirdPlaceMatch: boolean;
+  bracketSize: number;
+  byeCount: number;
+  participantCount: number;
+  rounds: number;
+}
+
+export type PhaseResponse = GroupPhaseResponse | EliminationPhaseResponse;
+
+export function isGroupPhase(p: PhaseResponse): p is GroupPhaseResponse {
+  return "numberOfGroups" in p;
+}
+
+export interface TournamentPhasesResponse {
   tournamentId: string;
-  name: string;
-  type: PhaseType;
-  order: number;
-  config: GroupPhaseConfig | EliminationPhaseConfig;
-  createdAt: string;
+  tournamentName: string;
+  phases: PhaseResponse[];
+  isConfigurationValid: boolean;
+  validationErrors: string[];
 }
 
-export interface GroupPhaseConfig {
-  type: "Group";
-  groupCount: number;
-  teamsPerGroup: number;
-  advancingPerGroup: number;
-  pointsForWin: number;
-  pointsForDraw: number;
-  pointsForLoss: number;
-}
-
-export interface EliminationPhaseConfig {
-  type: "SingleElimination" | "DoubleElimination";
-  thirdPlaceMatch: boolean;
-}
-
-export interface CreatePhaseRequest {
-  name: string;
-  type: PhaseType;
-  order: number;
-  config: Record<string, unknown>;
-}
-
-export interface UpdatePhaseRequest {
-  name?: string;
-  order?: number;
-  config?: Record<string, unknown>;
+export interface ReorderPhasesRequest {
+  phaseIds: string[];
 }

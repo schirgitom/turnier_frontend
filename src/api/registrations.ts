@@ -9,13 +9,19 @@ export interface RegistrationDto {
   registeredAt: string;
 }
 
+export interface RegistrationsResponse {
+  items: RegistrationDto[];
+  totalCount: number;
+}
+
 export async function getRegistrations(
   tournamentId: string,
 ): Promise<RegistrationDto[]> {
-  const response = await apiClient.get<RegistrationDto[]>(
+  const response = await apiClient.get<RegistrationDto[] | RegistrationsResponse>(
     `/tournaments/${tournamentId}/registrations`,
   );
-  return response.data;
+  if (Array.isArray(response.data)) return response.data;
+  return response.data.items;
 }
 
 export async function registerParticipant(

@@ -1,9 +1,10 @@
+import { useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2, CheckCircle2 } from "lucide-react";
 import { getTournament, updateTournament, deleteTournament, updateTournamentStatus } from "@/api/tournaments";
 import type { UpdateTournamentRequest } from "@/types/tournament";
 import { getApiErrorMessage } from "@/api/client";
@@ -18,16 +19,19 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { TournamentStatus } from "@/types/tournament";
+
+function useToast() {
+  const [message, setMessage] = useState<string | null>(null);
+  const show = useCallback((msg: string) => {
+    setMessage(msg);
+    setTimeout(() => setMessage(null), 3000);
+  }, []);
+  return { message, show };
+}
 
 const updateSchema = z.object({
   name: z.string().min(1, "Name ist erforderlich"),
@@ -36,16 +40,38 @@ const updateSchema = z.object({
   startDate: z.string().min(1, "Startdatum ist erforderlich"),
   endDate: z.string().min(1, "Enddatum ist erforderlich"),
   maxParticipants: z.string().optional(),
+  minParticipants: z.string().optional(),
+  visibility: z.enum(["Private", "Public"]),
 });
 
 type UpdateForm = z.infer<typeof updateSchema>;
 
-const statusTransitions: Record<TournamentStatus, TournamentStatus[]> = {
-  [TournamentStatus.Draft]: [TournamentStatus.Published],
-  [TournamentStatus.Published]: [TournamentStatus.RegistrationOpen, TournamentStatus.Cancelled],
-  [TournamentStatus.RegistrationOpen]: [TournamentStatus.RegistrationClosed, TournamentStatus.Cancelled],
-  [TournamentStatus.RegistrationClosed]: [TournamentStatus.InProgress, TournamentStatus.Cancelled],
-  [TournamentStatus.InProgress]: [TournamentStatus.Completed, TournamentStatus.Cancelled],
+interface StatusAction {
+  action: string;
+  label: string;
+  variant?: "default" | "outline" | "destructive";
+}
+
+const statusActions: Record<TournamentStatus, StatusAction[]> = {
+  [TournamentStatus.Draft]: [
+    { action: "Publish", label: "Veröffentlichen" },
+  ],
+  [TournamentStatus.Published]: [
+    { action: "OpenRegistration", label: "Anmeldung öffnen" },
+    { action: "Cancel", label: "Abbrechen", variant: "destructive" },
+  ],
+  [TournamentStatus.RegistrationOpen]: [
+    { action: "CloseRegistration", label: "Anmeldung schließen" },
+    { action: "Cancel", label: "Abbrechen", variant: "destructive" },
+  ],
+  [TournamentStatus.RegistrationClosed]: [
+    { action: "Start", label: "Starten" },
+    { action: "Cancel", label: "Abbrechen", variant: "destructive" },
+  ],
+  [TournamentStatus.InProgress]: [
+    { action: "Complete", label: "Abschließen" },
+    { action: "Cancel", label: "Abbrechen", variant: "destructive" },
+  ],
   [TournamentStatus.Completed]: [],
   [TournamentStatus.Cancelled]: [],
 };
@@ -64,6 +90,7 @@ export function TournamentSettingsPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const { data: tournament, isLoading } = useQuery({
     queryKey: ["tournament", tournamentId],
@@ -81,11 +108,12 @@ export function TournamentSettingsPage() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: (status: string) =>
-      updateTournamentStatus(tournamentId!, status),
+    mutationFn: (action: string) =>
+      updateTournamentStatus(tournamentId!, action),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tournament", tournamentId] });
       queryClient.invalidateQueries({ queryKey: ["tournaments"] });
+      toast.show("Status erfolgreich geändert");
     },
   });
 
@@ -100,6 +128,8 @@ export function TournamentSettingsPage() {
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<UpdateForm>({
     resolver: zodResolver(updateSchema),
@@ -111,9 +141,13 @@ export function TournamentSettingsPage() {
           startDate: tournament.startDate.split("T")[0] ?? "",
           endDate: tournament.endDate.split("T")[0] ?? "",
           maxParticipants: tournament.maxParticipants?.toString(),
+          minParticipants: (tournament.minParticipants ?? 2).toString(),
+          visibility: (tournament.visibility === "Public" ? "Public" : "Private") as "Public" | "Private",
         }
       : undefined,
   });
+
+  const currentVisibility = watch("visibility");
 
   if (isLoading) {
     return (
@@ -123,12 +157,18 @@ export function TournamentSettingsPage() {
     );
   }
 
-  const allowedTransitions = tournament
-    ? statusTransitions[tournament.status] ?? []
+  const actions = tournament
+    ? statusActions[tournament.status] ?? []
     : [];
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
+      {toast.message && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted px-4 py-3 text-sm">
+          <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+          {toast.message}
+        </div>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>Turnier bearbeiten</CardTitle>
@@ -140,6 +180,8 @@ export function TournamentSettingsPage() {
           startDate: data.startDate,
           endDate: data.endDate,
           maxParticipants: data.maxParticipants ? Number(data.maxParticipants) : null,
+          minParticipants: data.minParticipants ? Number(data.minParticipants) : null,
+          visibility: data.visibility,
         }))}>
           <CardContent className="space-y-4">
             {updateMutation.isError && (
@@ -184,14 +226,48 @@ export function TournamentSettingsPage() {
                 <Input id="endDate" type="date" {...register("endDate")} />
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="minParticipants">Min. Teilnehmer</Label>
+                <Input
+                  id="minParticipants"
+                  type="number"
+                  min={2}
+                  {...register("minParticipants")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="maxParticipants">Max. Teilnehmer</Label>
+                <Input
+                  id="maxParticipants"
+                  type="number"
+                  min={2}
+                  {...register("maxParticipants")}
+                />
+              </div>
+            </div>
             <div className="space-y-2">
-              <Label htmlFor="maxParticipants">Max. Teilnehmer</Label>
-              <Input
-                id="maxParticipants"
-                type="number"
-                min={2}
-                {...register("maxParticipants")}
-              />
+              <Label>Sichtbarkeit</Label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    className="h-4 w-4"
+                    checked={currentVisibility === "Private"}
+                    onChange={() => setValue("visibility", "Private")}
+                  />
+                  <span className="text-sm">Privat</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    className="h-4 w-4"
+                    checked={currentVisibility === "Public"}
+                    onChange={() => setValue("visibility", "Public")}
+                  />
+                  <span className="text-sm">Öffentlich</span>
+                </label>
+              </div>
             </div>
           </CardContent>
           <CardFooter>
@@ -205,41 +281,41 @@ export function TournamentSettingsPage() {
         </form>
       </Card>
 
-      {allowedTransitions.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Status ändern</CardTitle>
-            <CardDescription>
-              Aktueller Status:{" "}
-              <span className="font-medium">
-                {statusLabels[tournament!.status]}
-              </span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Select
-              onValueChange={(value) => statusMutation.mutate(value)}
-              disabled={statusMutation.isPending}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Neuen Status wählen..." />
-              </SelectTrigger>
-              <SelectContent>
-                {allowedTransitions.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {statusLabels[status]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      <Card>
+        <CardHeader>
+          <CardTitle>Status</CardTitle>
+          <CardDescription className="flex items-center gap-2">
+            Aktueller Status:{" "}
+            <Badge variant="outline">
+              {statusLabels[tournament!.status]}
+            </Badge>
+          </CardDescription>
+        </CardHeader>
+        {actions.length > 0 && (
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {actions.map((a) => (
+                <Button
+                  key={a.action}
+                  variant={a.variant ?? "outline"}
+                  onClick={() => statusMutation.mutate(a.action)}
+                  disabled={statusMutation.isPending}
+                >
+                  {statusMutation.isPending && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  {a.label}
+                </Button>
+              ))}
+            </div>
             {statusMutation.isError && (
-              <p className="mt-2 text-sm text-destructive">
+              <p className="text-sm text-destructive">
                 {getApiErrorMessage(statusMutation.error)}
               </p>
             )}
           </CardContent>
-        </Card>
-      )}
+        )}
+      </Card>
 
       <Separator />
 

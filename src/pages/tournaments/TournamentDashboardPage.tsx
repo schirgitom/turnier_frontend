@@ -68,7 +68,7 @@ export function TournamentDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {participantsData?.total ?? 0}
+              {participantsData?.totalCount ?? 0}
             </div>
             {tournament?.maxParticipants && (
               <p className="text-xs text-muted-foreground">

@@ -1,3 +1,17 @@
+export interface ParticipantListItem {
+  id: string;
+  displayName: string;
+  dateOfBirth: string | null;
+  userId: string | null;
+}
+
+export interface ParticipantListResponse {
+  items: ParticipantListItem[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface ParticipantDto {
   id: string;
   firstName: string;

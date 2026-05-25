@@ -22,11 +22,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 export function StandingsPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
 
-  const { data: phases, isLoading: phasesLoading } = useQuery({
+  const { data, isLoading: phasesLoading } = useQuery({
     queryKey: ["phases", tournamentId],
     queryFn: () => getPhases(tournamentId!),
     enabled: !!tournamentId,
   });
+
+  const phases = data?.phases ?? [];
 
   if (phasesLoading) {
     return (
@@ -37,7 +39,7 @@ export function StandingsPage() {
     );
   }
 
-  if (!phases || phases.length === 0) {
+  if (phases.length === 0) {
     return (
       <p className="py-8 text-center text-muted-foreground">
         Noch keine Phasen vorhanden.

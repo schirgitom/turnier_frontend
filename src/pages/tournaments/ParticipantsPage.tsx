@@ -1,20 +1,40 @@
-import { useState } from "react";
-import { useOutletContext } from "react-router";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { useOutletContext, useParams } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Loader2, Trash2, User, Users, Shield } from "lucide-react";
 import {
-  getParticipants,
-  createParticipant,
-  deleteParticipant,
-} from "@/api/participants";
+  Plus,
+  Loader2,
+  Trash2,
+  User,
+  Users,
+  Shield,
+  CheckCircle2,
+  Search,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  UserPlus,
+  Check,
+  LogIn,
+} from "lucide-react";
+import {
+  getRegistrations,
+  registerParticipant,
+  bulkRegister,
+  removeRegistration,
+  confirmRegistration,
+  checkInRegistration,
+} from "@/api/registrations";
+import { getParticipants, createParticipant } from "@/api/participants";
 import { getApiErrorMessage } from "@/api/client";
 import type { TournamentDto } from "@/types/tournament";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -30,15 +50,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 
 const createSchema = z.object({
-  firstName: z.string().min(1, "Vorname ist erforderlich"),
-  lastName: z.string().min(1, "Nachname ist erforderlich"),
+  displayName: z.string().min(1, "Name ist erforderlich"),
   dateOfBirth: z.string().optional(),
-  phoneNumber: z.string().optional(),
-  notes: z.string().optional(),
 });
 
 type CreateForm = z.infer<typeof createSchema>;
@@ -55,49 +71,238 @@ const PARTICIPANT_TYPE_ICONS = {
   Team: Shield,
 } as const;
 
+const statusConfig: Record<
+  string,
+  { label: string; variant: "secondary" | "default" | "outline" | "destructive" }
+> = {
+  Pending: { label: "Ausstehend", variant: "secondary" },
+  Confirmed: { label: "Bestätigt", variant: "default" },
+  CheckedIn: { label: "Eingecheckt", variant: "outline" },
+  Withdrawn: { label: "Zurückgezogen", variant: "destructive" },
+};
+
+function useToast() {
+  const [message, setMessage] = useState<string | null>(null);
+  const show = useCallback((msg: string) => {
+    setMessage(msg);
+    setTimeout(() => setMessage(null), 3000);
+  }, []);
+  return { message, show };
+}
+
 export function ParticipantsPage() {
-  const { tournament } = useOutletContext<{ tournament: TournamentDto | undefined }>();
+  const { tournamentId } = useParams<{ tournamentId: string }>();
+  const { tournament } = useOutletContext<{
+    tournament: TournamentDto | undefined;
+  }>();
   const queryClient = useQueryClient();
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const toast = useToast();
 
-  const { data: participantsData, isLoading } = useQuery({
-    queryKey: ["participants"],
-    queryFn: () => getParticipants(),
+  const regQueryKey = ["registrations", tournamentId];
+
+  // --- State ---
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkConfirming, setBulkConfirming] = useState(false);
+
+  // Sort state for registrations table
+  const [sortColumn, setSortColumn] = useState<"name" | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+
+  // Search state for "add from pool" dialog
+  const [poolSearch, setPoolSearch] = useState("");
+  const [debouncedPoolSearch, setDebouncedPoolSearch] = useState("");
+  const [poolSelected, setPoolSelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedPoolSearch(poolSearch), 300);
+    return () => clearTimeout(id);
+  }, [poolSearch]);
+
+  // --- Queries ---
+  const { data: registrations, isLoading } = useQuery({
+    queryKey: regQueryKey,
+    queryFn: () => getRegistrations(tournamentId!),
+    enabled: !!tournamentId,
   });
 
-  const participants = participantsData?.items ?? [];
-
-  const createMutation = useMutation({
-    mutationFn: (data: CreateForm) =>
-      createParticipant(tournament?.participantType ?? "Single", {
-        firstName: data.firstName,
-        lastName: data.lastName,
-        dateOfBirth: data.dateOfBirth || undefined,
-        phoneNumber: data.phoneNumber || undefined,
-        notes: data.notes || undefined,
+  const { data: poolData, isLoading: poolLoading } = useQuery({
+    queryKey: ["participants", "pool", debouncedPoolSearch],
+    queryFn: () =>
+      getParticipants({
+        page: 1,
+        pageSize: 1000,
+        ...(debouncedPoolSearch ? { search: debouncedPoolSearch } : {}),
       }),
+    enabled: addDialogOpen,
+  });
+
+  const registeredIds = useMemo(
+    () => new Set(registrations?.map((r) => r.participantId)),
+    [registrations],
+  );
+
+  const availablePool = useMemo(
+    () =>
+      (poolData?.items ?? []).filter((p) => !registeredIds.has(p.id)),
+    [poolData, registeredIds],
+  );
+
+  // --- Sorting ---
+  const sortedRegistrations = useMemo(() => {
+    if (!registrations) return [];
+    if (!sortColumn) return registrations;
+    return [...registrations].sort((a, b) => {
+      const dir = sortDirection === "asc" ? 1 : -1;
+      const numA = parseInt(a.participantName.split(" ").pop() ?? "");
+      const numB = parseInt(b.participantName.split(" ").pop() ?? "");
+      if (!isNaN(numA) && !isNaN(numB)) return dir * (numA - numB);
+      return dir * a.participantName.localeCompare(b.participantName, "de");
+    });
+  }, [registrations, sortColumn, sortDirection]);
+
+  const toggleSort = () => {
+    if (sortColumn !== "name") {
+      setSortColumn("name");
+      setSortDirection("asc");
+    } else if (sortDirection === "asc") {
+      setSortDirection("desc");
+    } else {
+      setSortColumn(null);
+      setSortDirection("asc");
+    }
+  };
+
+  // --- Selection ---
+  const allSelected =
+    sortedRegistrations.length > 0 &&
+    sortedRegistrations.every((r) => selectedIds.has(r.participantId));
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(
+        new Set(sortedRegistrations.map((r) => r.participantId)),
+      );
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // --- Mutations ---
+  const confirmMutation = useMutation({
+    mutationFn: (participantId: string) =>
+      confirmRegistration(tournamentId!, participantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["participants"] });
-      setDialogOpen(false);
-      reset();
+      queryClient.invalidateQueries({ queryKey: regQueryKey });
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => deleteParticipant(id),
+  const checkInMutation = useMutation({
+    mutationFn: (participantId: string) =>
+      checkInRegistration(tournamentId!, participantId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["participants"] });
+      queryClient.invalidateQueries({ queryKey: regQueryKey });
     },
   });
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<CreateForm>({
+  const removeMutation = useMutation({
+    mutationFn: (participantId: string) =>
+      removeRegistration(tournamentId!, participantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: regQueryKey });
+    },
+  });
+
+  const addBulkMutation = useMutation({
+    mutationFn: (ids: string[]) => bulkRegister(tournamentId!, ids),
+    onSuccess: (_data, ids) => {
+      queryClient.invalidateQueries({ queryKey: regQueryKey });
+      setPoolSelected(new Set());
+      setAddDialogOpen(false);
+      toast.show(`${ids.length} Teilnehmer registriert`);
+    },
+  });
+
+  // --- Create new + auto-register ---
+  const createForm = useForm<CreateForm>({
     resolver: zodResolver(createSchema),
   });
+
+  const createAndRegisterMutation = useMutation({
+    mutationFn: async (data: CreateForm) => {
+      const created = await createParticipant(
+        tournament?.participantType ?? "Single",
+        {
+          firstName: data.displayName,
+          lastName: "",
+          dateOfBirth: data.dateOfBirth || undefined,
+        },
+      );
+      await registerParticipant(tournamentId!, created.id);
+      return created;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: regQueryKey });
+      queryClient.invalidateQueries({ queryKey: ["participants"] });
+      setCreateDialogOpen(false);
+      createForm.reset();
+      toast.show("Teilnehmer erstellt und registriert");
+    },
+  });
+
+  // --- Bulk confirm ---
+  const handleBulkConfirm = async () => {
+    const pendingIds = [...selectedIds].filter((id) => {
+      const reg = registrations?.find((r) => r.participantId === id);
+      return reg?.status === "Pending";
+    });
+    if (pendingIds.length === 0) return;
+
+    setBulkConfirming(true);
+    let succeeded = 0;
+    for (const id of pendingIds) {
+      try {
+        await confirmRegistration(tournamentId!, id);
+        succeeded++;
+      } catch {
+        // continue with remaining
+      }
+    }
+    setBulkConfirming(false);
+    queryClient.invalidateQueries({ queryKey: regQueryKey });
+    setSelectedIds(new Set());
+    toast.show(`${succeeded} Teilnehmer bestätigt`);
+  };
+
+  // --- Pool dialog helpers ---
+  const togglePoolItem = (id: string) => {
+    setPoolSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAddSelected = () => {
+    if (poolSelected.size === 0) return;
+    addBulkMutation.mutate([...poolSelected]);
+  };
+
+  const handleAddAll = () => {
+    if (availablePool.length === 0) return;
+    addBulkMutation.mutate(availablePool.map((p) => p.id));
+  };
 
   if (isLoading) {
     return (
@@ -112,8 +317,20 @@ export function ParticipantsPage() {
   const TypeIcon = pType ? PARTICIPANT_TYPE_ICONS[pType] : null;
   const typeLabel = pType ? PARTICIPANT_TYPE_LABELS[pType] : null;
 
+  const pendingSelectedCount = [...selectedIds].filter((id) => {
+    const reg = registrations?.find((r) => r.participantId === id);
+    return reg?.status === "Pending";
+  }).length;
+
   return (
     <div className="space-y-4">
+      {toast.message && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted px-4 py-3 text-sm">
+          <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+          {toast.message}
+        </div>
+      )}
+
       {typeLabel && TypeIcon && (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground w-fit">
           <TypeIcon className="h-4 w-4" />
@@ -123,110 +340,153 @@ export function ParticipantsPage() {
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">
-          Teilnehmer ({participantsData?.total ?? 0})
+          Teilnehmer ({registrations?.length ?? 0})
         </h2>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Teilnehmer hinzufügen
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Neuer Teilnehmer</DialogTitle>
-            </DialogHeader>
-            <form
-              onSubmit={handleSubmit((data) => createMutation.mutate(data))}
-              className="space-y-4"
+        <div className="flex gap-2">
+          {selectedIds.size > 0 && pendingSelectedCount > 0 && (
+            <Button
+              variant="outline"
+              onClick={handleBulkConfirm}
+              disabled={bulkConfirming}
             >
-              {createMutation.isError && (
-                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                  {getApiErrorMessage(createMutation.error)}
-                </div>
+              {bulkConfirming ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="mr-2 h-4 w-4" />
               )}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName">Vorname</Label>
-                  <Input id="firstName" {...register("firstName")} />
-                  {errors.firstName && (
-                    <p className="text-sm text-destructive">
-                      {errors.firstName.message}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName">Nachname</Label>
-                  <Input id="lastName" {...register("lastName")} />
-                  {errors.lastName && (
-                    <p className="text-sm text-destructive">
-                      {errors.lastName.message}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="dateOfBirth">Geburtsdatum (optional)</Label>
-                <Input id="dateOfBirth" type="date" {...register("dateOfBirth")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phoneNumber">Telefon (optional)</Label>
-                <Input id="phoneNumber" type="tel" {...register("phoneNumber")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notizen (optional)</Label>
-                <textarea
-                  id="notes"
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  {...register("notes")}
-                />
-              </div>
-              <DialogFooter>
-                <Button type="submit" disabled={createMutation.isPending}>
-                  {createMutation.isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Hinzufügen
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+              {pendingSelectedCount} bestätigen
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            onClick={() => {
+              setPoolSearch("");
+              setDebouncedPoolSearch("");
+              setPoolSelected(new Set());
+              setAddDialogOpen(true);
+            }}
+          >
+            <UserPlus className="mr-2 h-4 w-4" />
+            Teilnehmer hinzufügen
+          </Button>
+          <Button
+            onClick={() => {
+              createForm.reset();
+              setCreateDialogOpen(true);
+            }}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Neu erstellen
+          </Button>
+        </div>
       </div>
 
-      {participants.length === 0 ? (
+      {sortedRegistrations.length === 0 ? (
         <p className="py-8 text-center text-muted-foreground">
-          Noch keine Teilnehmer vorhanden.
+          Noch keine Teilnehmer registriert.
         </p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Telefon</TableHead>
-              <TableHead className="w-24">Aktionen</TableHead>
+              <TableHead className="w-10">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                />
+              </TableHead>
+              <TableHead>
+                <button
+                  type="button"
+                  className="flex items-center gap-1"
+                  onClick={toggleSort}
+                >
+                  Name
+                  {sortColumn === "name" ? (
+                    sortDirection === "asc" ? (
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    )
+                  ) : (
+                    <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                </button>
+              </TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="w-48">Aktionen</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {participants.map((p) => {
-              const fullName = `${p.firstName} ${p.lastName}`;
+            {sortedRegistrations.map((reg) => {
+              const cfg = statusConfig[reg.status];
               return (
-                <TableRow key={p.id}>
-                  <TableCell className="font-medium">{fullName}</TableCell>
-                  <TableCell>{p.phoneNumber ?? "—"}</TableCell>
+                <TableRow key={reg.participantId}>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        if (confirm(`${fullName} wirklich entfernen?`)) {
-                          deleteMutation.mutate(p.id);
-                        }
-                      }}
-                      disabled={deleteMutation.isPending}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-input"
+                      checked={selectedIds.has(reg.participantId)}
+                      onChange={() => toggleSelect(reg.participantId)}
+                    />
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    {reg.participantName}
+                  </TableCell>
+                  <TableCell>
+                    {cfg ? (
+                      <Badge variant={cfg.variant}>{cfg.label}</Badge>
+                    ) : (
+                      <Badge variant="secondary">{reg.status}</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      {reg.status === "Pending" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            confirmMutation.mutate(reg.participantId)
+                          }
+                          disabled={confirmMutation.isPending}
+                        >
+                          <Check className="mr-1 h-3.5 w-3.5" />
+                          Bestätigen
+                        </Button>
+                      )}
+                      {reg.status === "Confirmed" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            checkInMutation.mutate(reg.participantId)
+                          }
+                          disabled={checkInMutation.isPending}
+                        >
+                          <LogIn className="mr-1 h-3.5 w-3.5" />
+                          Check-In
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `${reg.participantName} wirklich entfernen?`,
+                            )
+                          ) {
+                            removeMutation.mutate(reg.participantId);
+                          }
+                        }}
+                        disabled={removeMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               );
@@ -234,6 +494,140 @@ export function ParticipantsPage() {
           </TableBody>
         </Table>
       )}
+
+      {/* Add from global pool dialog */}
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent className="max-h-[80vh] sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Teilnehmer hinzufügen</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Teilnehmer suchen..."
+                value={poolSearch}
+                onChange={(e) => setPoolSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+
+            {addBulkMutation.isError && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {getApiErrorMessage(addBulkMutation.error)}
+              </div>
+            )}
+
+            <div className="max-h-[40vh] overflow-y-auto rounded-md border">
+              {poolLoading ? (
+                <div className="space-y-2 p-4">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              ) : availablePool.length === 0 ? (
+                <p className="p-4 text-center text-sm text-muted-foreground">
+                  {debouncedPoolSearch
+                    ? "Keine verfügbaren Teilnehmer gefunden."
+                    : "Alle Teilnehmer sind bereits registriert."}
+                </p>
+              ) : (
+                <div className="divide-y">
+                  {availablePool.map((p) => (
+                    <label
+                      key={p.id}
+                      className="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-muted/50"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-input"
+                        checked={poolSelected.has(p.id)}
+                        onChange={() => togglePoolItem(p.id)}
+                      />
+                      <span className="text-sm">{p.displayName}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="flex-row gap-2 sm:justify-between">
+            <Button
+              variant="outline"
+              onClick={handleAddAll}
+              disabled={
+                availablePool.length === 0 || addBulkMutation.isPending
+              }
+            >
+              {addBulkMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Alle hinzufügen ({availablePool.length})
+            </Button>
+            <Button
+              onClick={handleAddSelected}
+              disabled={poolSelected.size === 0 || addBulkMutation.isPending}
+            >
+              {addBulkMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Ausgewählte hinzufügen ({poolSelected.size})
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create new participant + auto-register dialog */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Neuer Teilnehmer</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={createForm.handleSubmit((data) =>
+              createAndRegisterMutation.mutate(data),
+            )}
+            className="space-y-4"
+          >
+            {createAndRegisterMutation.isError && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {getApiErrorMessage(createAndRegisterMutation.error)}
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="displayName">Name</Label>
+              <Input
+                id="displayName"
+                {...createForm.register("displayName")}
+              />
+              {createForm.formState.errors.displayName && (
+                <p className="text-sm text-destructive">
+                  {createForm.formState.errors.displayName.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="dateOfBirth">Geburtsdatum (optional)</Label>
+              <Input
+                id="dateOfBirth"
+                type="date"
+                {...createForm.register("dateOfBirth")}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="submit"
+                disabled={createAndRegisterMutation.isPending}
+              >
+                {createAndRegisterMutation.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Erstellen & Registrieren
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

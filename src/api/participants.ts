@@ -1,9 +1,9 @@
 import { apiClient } from "./client";
 import type {
   ParticipantDto,
+  ParticipantListResponse,
   CreateParticipantRequest,
   UpdateParticipantRequest,
-  PaginatedResponse,
 } from "@/types/participant";
 import type { ParticipantType } from "@/types/tournament";
 
@@ -11,8 +11,8 @@ export async function getParticipants(params?: {
   page?: number;
   pageSize?: number;
   search?: string;
-}): Promise<PaginatedResponse<ParticipantDto>> {
-  const response = await apiClient.get<PaginatedResponse<ParticipantDto>>(
+}): Promise<ParticipantListResponse> {
+  const response = await apiClient.get<ParticipantListResponse>(
     "/participants",
     { params },
   );

@@ -54,7 +54,7 @@ export function useRegister() {
 
   return useMutation({
     mutationFn: (data: RegisterUserRequest) => authApi.register(data),
-    onSuccess: async (response) => {
+    onSuccess: async (response, variables) => {
       let orgs: OrgMembershipDto[] = [];
       try {
         orgs = await authApi.getMyOrganizations(response.accessToken);
@@ -67,7 +67,13 @@ export function useRegister() {
         orgs.length > 0 ? orgs[0]! : null,
       );
 
-      navigate(orgs.length > 0 ? "/tournaments" : "/onboarding");
+      if (orgs.length > 0) {
+        navigate("/tournaments");
+      } else {
+        navigate("/onboarding", {
+          state: { email: variables.email, password: variables.password },
+        });
+      }
     },
   });
 }

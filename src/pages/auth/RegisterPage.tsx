@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Loader2 } from "lucide-react";
 import { useRegister } from "@/hooks/useAuth";
 import { getApiErrorMessage } from "@/api/client";
+import { PasswordStrengthChecker } from "@/components/auth/PasswordStrengthChecker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,18 +18,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
-
-const PASSWORD_RULES = [
-  /[A-Z]/,
-  /[a-z]/,
-  /[0-9]/,
-  /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/,
-] as const;
-
-function getPasswordStrength(pw: string): number {
-  return PASSWORD_RULES.filter((re) => re.test(pw)).length;
-}
 
 const registerSchema = z
   .object({
@@ -50,14 +39,6 @@ const registerSchema = z
 
 type RegisterForm = z.infer<typeof registerSchema>;
 
-const strengthConfig = [
-  null,
-  { label: "Schwach", color: "bg-red-500", width: "w-1/4" },
-  { label: "Schwach", color: "bg-red-500", width: "w-2/4" },
-  { label: "Mittel", color: "bg-orange-500", width: "w-3/4" },
-  { label: "Stark", color: "bg-green-500", width: "w-full" },
-] as const;
-
 export function RegisterPage() {
   const registerMutation = useRegister();
   const {
@@ -73,9 +54,8 @@ export function RegisterPage() {
 
   const passwordValue = useWatch({ control, name: "password" }) ?? "";
   const confirmValue = useWatch({ control, name: "confirmPassword" }) ?? "";
-
-  const strength = passwordValue.length > 0 ? getPasswordStrength(passwordValue) : 0;
-  const strengthInfo = strengthConfig[strength];
+  const [passwordFocused, setPasswordFocused] = useState(false);
+  const showChecker = passwordFocused || passwordValue.length > 0;
 
   useEffect(() => {
     if (!confirmValue) return;
@@ -136,31 +116,11 @@ export function RegisterPage() {
               type="password"
               autoComplete="new-password"
               {...register("password")}
+              onFocus={() => setPasswordFocused(true)}
+              onBlur={() => setPasswordFocused(false)}
             />
-            {strengthInfo && (
-              <div className="space-y-1">
-                <div className="h-1.5 w-full rounded-full bg-muted">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-all",
-                      strengthInfo.color,
-                      strengthInfo.width,
-                    )}
-                  />
-                </div>
-                <p
-                  className={cn(
-                    "text-xs",
-                    strength <= 2
-                      ? "text-red-500"
-                      : strength === 3
-                        ? "text-orange-500"
-                        : "text-green-500",
-                  )}
-                >
-                  {strengthInfo.label}
-                </p>
-              </div>
+            {showChecker && (
+              <PasswordStrengthChecker password={passwordValue} />
             )}
             {errors.password && (
               <p className="text-sm text-destructive">

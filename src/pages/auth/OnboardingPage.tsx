@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useLocation } from "react-router";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -8,7 +8,7 @@ import { Building2, Clock, Loader2, LogOut } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useLogout } from "@/hooks/useAuth";
 import { createOrganization } from "@/api/organizations";
-import { getMyOrganizations } from "@/api/auth";
+import { getMyOrganizations, login } from "@/api/auth";
 import { getApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,6 +66,10 @@ function LogoutButton() {
 
 export function OnboardingPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const credentials = location.state as
+    | { email: string; password: string }
+    | null;
   const setActiveOrg = useAuthStore((s) => s.setActiveOrg);
   const user = useAuthStore((s) => s.user);
   const [mode, setMode] = useState<"choose" | "create" | "wait">("choose");
@@ -95,10 +99,27 @@ export function OnboardingPage() {
     mutationFn: (data: CreateOrgForm) => createOrganization(data),
     onSuccess: async () => {
       const freshOrgs = await getMyOrganizations();
-      if (freshOrgs.length > 0) {
-        setActiveOrg(freshOrgs[freshOrgs.length - 1]!);
+      const newOrg = freshOrgs[freshOrgs.length - 1];
+
+      if (credentials && newOrg) {
+        const loginResponse = await login({
+          email: credentials.email,
+          password: credentials.password,
+          organizationId: newOrg.organizationId,
+        });
+        useAuthStore.getState().setAuthWithOrg(loginResponse, newOrg);
+        navigate("/tournaments");
+      } else if (newOrg) {
+        setActiveOrg(newOrg);
+        navigate("/login", {
+          state: {
+            message:
+              "Organisation erstellt. Bitte erneut anmelden.",
+          },
+        });
+      } else {
+        navigate("/login");
       }
-      navigate("/tournaments");
     },
   });
 
