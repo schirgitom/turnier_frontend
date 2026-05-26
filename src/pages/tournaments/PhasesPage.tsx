@@ -10,12 +10,28 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  GripVertical,
   Loader2,
+  Plus,
   Trash2,
   Users,
   Swords,
   Zap,
 } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+  type DragOverEvent,
+} from "@dnd-kit/core";
 import { toast } from "sonner";
 import {
   getPhases,
@@ -26,15 +42,24 @@ import {
   generateAllPhases,
   reassignParticipant,
 } from "@/api/phases";
+import { getRegistrations } from "@/api/registrations";
 import { isGroupPhase } from "@/types/phase";
 import type {
   PhaseResponse,
   GroupPhaseResponse,
+  GroupResponse,
   EliminationPhaseResponse,
   GroupParticipant,
   ReassignParticipantRequest,
 } from "@/types/phase";
 import { getApiErrorMessage } from "@/api/client";
+import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,6 +114,7 @@ const statusLabels: Record<string, string> = {
   Pending: "Ausstehend",
   Active: "Aktiv",
   Generated: "Generiert",
+  InProgress: "Laufend",
   Completed: "Abgeschlossen",
 };
 
@@ -100,6 +126,100 @@ function cleanName(name: string): string {
 
 function germanGroupName(name: string): string {
   return name.replace("Group", "Gruppe");
+}
+
+interface DragData {
+  participantId: string;
+  sourceGroupId: string;
+  displayName: string;
+}
+
+function DraggableParticipantRow({
+  participant,
+  sourceGroupId,
+  onOpenReassign,
+  reassigning,
+  isActiveReassign,
+}: {
+  participant: GroupParticipant;
+  sourceGroupId: string;
+  onOpenReassign: () => void;
+  reassigning: boolean;
+  isActiveReassign: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `${participant.participantId}::${sourceGroupId}`,
+    data: {
+      participantId: participant.participantId,
+      sourceGroupId,
+      displayName: participant.displayName,
+    } satisfies DragData,
+  });
+
+  return (
+    <li
+      ref={setNodeRef}
+      className={cn(
+        "flex items-center justify-between text-sm",
+        isDragging && "opacity-40",
+      )}
+    >
+      <div className="flex items-center gap-1.5 min-w-0">
+        <button
+          {...listeners}
+          {...attributes}
+          className="cursor-grab active:cursor-grabbing touch-none text-muted-foreground hover:text-foreground shrink-0"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+        <span className="truncate">{cleanName(participant.displayName)}</span>
+      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 shrink-0"
+        disabled={reassigning}
+        onClick={onOpenReassign}
+      >
+        {isActiveReassign ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <ArrowLeftRight className="h-3 w-3" />
+        )}
+      </Button>
+    </li>
+  );
+}
+
+function DroppableGroupCard({
+  group,
+  activeSrcGroupId,
+  overGroupId,
+  children,
+}: {
+  group: GroupResponse;
+  activeSrcGroupId: string | null;
+  overGroupId: string | null;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef } = useDroppable({ id: group.id });
+  const isOver = overGroupId === group.id;
+  const isSameGroup = activeSrcGroupId === group.id;
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "rounded-lg border p-3 space-y-2 transition-colors",
+        isOver && !isSameGroup &&
+          "border-blue-400 bg-blue-50/50 dark:bg-blue-950/20",
+        isOver && isSameGroup &&
+          "border-red-400 bg-red-50/50 dark:bg-red-950/20",
+      )}
+    >
+      {children}
+    </div>
+  );
 }
 
 function GroupPhaseCard({
@@ -129,6 +249,28 @@ function GroupPhaseCard({
     sourceGroupName: string;
   } | null>(null);
   const [targetGroupId, setTargetGroupId] = useState("");
+  const [activeDragData, setActiveDragData] = useState<DragData | null>(null);
+  const [overGroupId, setOverGroupId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  const { data: registrationsData } = useQuery({
+    queryKey: ["registrations", tournamentId],
+    queryFn: () => getRegistrations(tournamentId),
+    enabled: expanded && hasGroups,
+  });
+
+  const assignedIds = new Set(
+    (phase.groups ?? []).flatMap((g) =>
+      g.participants.map((p) => p.participantId),
+    ),
+  );
+  const unassigned = (registrationsData?.registrations ?? []).filter(
+    (r) => r.status === "Confirmed" && !assignedIds.has(r.participantId),
+  );
 
   const reassignMutation = useMutation({
     mutationFn: (data: ReassignParticipantRequest) =>
@@ -137,6 +279,9 @@ function GroupPhaseCard({
       queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
       toast.success("Teilnehmer verschoben");
       setReassignTarget(null);
+    },
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error));
     },
   });
 
@@ -148,6 +293,29 @@ function GroupPhaseCard({
     setTargetGroupId("");
     reassignMutation.reset();
     setReassignTarget({ participant, sourceGroupId, sourceGroupName });
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragData(event.active.data.current as DragData);
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    setOverGroupId(event.over?.id?.toString() ?? null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { over } = event;
+    const drag = activeDragData;
+    setActiveDragData(null);
+    setOverGroupId(null);
+    if (!over || !drag) return;
+    const tgtGroupId = over.id.toString();
+    if (tgtGroupId === drag.sourceGroupId) return;
+    reassignMutation.mutate({
+      participantId: drag.participantId,
+      sourceGroupId: drag.sourceGroupId,
+      targetGroupId: tgtGroupId,
+    });
   };
 
   return (
@@ -212,58 +380,113 @@ function GroupPhaseCard({
             </div>
 
             {hasGroups ? (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {(phase.groups ?? []).map((group) => (
-                  <div
-                    key={group.id}
-                    className="rounded-lg border p-3 space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold">
-                        {germanGroupName(group.name)}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {group.participants.length} Teilnehmer
-                      </span>
-                    </div>
-                    <ul className="space-y-1">
-                      {group.participants.map((p) => (
-                        <li
-                          key={p.participantId}
-                          className="flex items-center justify-between text-sm"
-                        >
-                          <span>{cleanName(p.displayName)}</span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            disabled={reassignMutation.isPending}
-                            onClick={() =>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+              >
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {(phase.groups ?? []).map((group) => (
+                    <DroppableGroupCard
+                      key={group.id}
+                      group={group}
+                      activeSrcGroupId={activeDragData?.sourceGroupId ?? null}
+                      overGroupId={overGroupId}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold">
+                          {germanGroupName(group.name)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {group.participants.length} Teilnehmer
+                        </span>
+                      </div>
+                      <ul className="space-y-1">
+                        {group.participants.map((p) => (
+                          <DraggableParticipantRow
+                            key={p.participantId}
+                            participant={p}
+                            sourceGroupId={group.id}
+                            onOpenReassign={() =>
                               openReassign(
                                 p,
                                 group.id,
                                 germanGroupName(group.name),
                               )
                             }
-                          >
-                            {reassignMutation.isPending &&
-                            reassignTarget?.participant.participantId ===
-                              p.participantId ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <ArrowLeftRight className="h-3 w-3" />
-                            )}
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
+                            reassigning={reassignMutation.isPending}
+                            isActiveReassign={
+                              reassignMutation.isPending &&
+                              reassignTarget?.participant.participantId ===
+                                p.participantId
+                            }
+                          />
+                        ))}
+                      </ul>
+                    </DroppableGroupCard>
+                  ))}
+                </div>
+
+                <DragOverlay>
+                  {activeDragData && (
+                    <div className="flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-sm shadow-lg">
+                      <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                      {cleanName(activeDragData.displayName)}
+                    </div>
+                  )}
+                </DragOverlay>
+              </DndContext>
             ) : (
               <p className="text-sm text-muted-foreground">
                 Phase noch nicht generiert.
               </p>
+            )}
+
+            {hasGroups && unassigned.length > 0 && (
+              <div className="rounded-lg border border-dashed p-4 space-y-2">
+                <h4 className="text-sm font-semibold text-muted-foreground">
+                  Nicht zugeordnet ({unassigned.length})
+                </h4>
+                <ul className="space-y-1.5">
+                  {unassigned.map((r) => (
+                    <li
+                      key={r.participantId}
+                      className="flex items-center justify-between text-sm"
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                        <span className="truncate">
+                          {cleanName(r.participantDisplayName)}
+                        </span>
+                      </div>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span tabIndex={0}>
+                              {/* TODO: backend needs endpoint to add an unassigned participant to a group after phase generation */}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled
+                                className="shrink-0"
+                              >
+                                <Plus className="mr-1 h-3 w-3" />
+                                Hinzufügen
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">
+                            Nachträgliches Hinzufügen wird vom Backend noch
+                            nicht unterstützt
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </CardContent>
         )}
