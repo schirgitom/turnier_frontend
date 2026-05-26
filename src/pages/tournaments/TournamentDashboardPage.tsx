@@ -4,7 +4,7 @@ import { Users, Swords, MapPin, BarChart3 } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { getTournament } from "@/api/tournaments";
-import { getParticipants } from "@/api/participants";
+import { getRegistrations } from "@/api/registrations";
 import { getMatches } from "@/api/matches";
 import {
   Card,
@@ -25,9 +25,10 @@ export function TournamentDashboardPage() {
     enabled: !!tournamentId,
   });
 
-  const { data: participantsData } = useQuery({
-    queryKey: ["participants"],
-    queryFn: () => getParticipants(),
+  const { data: registrationsData } = useQuery({
+    queryKey: ["registrations", tournamentId],
+    queryFn: () => getRegistrations(tournamentId!),
+    enabled: !!tournamentId,
   });
 
   const { data: matches } = useQuery({
@@ -61,72 +62,81 @@ export function TournamentDashboardPage() {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Teilnehmer</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {participantsData?.totalCount ?? 0}
-            </div>
-            {tournament?.maxParticipants && (
+        <Link to="participants" className="block">
+          <Card className="cursor-pointer transition-colors hover:bg-muted/50">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Teilnehmer</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {registrationsData?.registrations.length ?? 0}
+              </div>
               <p className="text-xs text-muted-foreground">
-                von {tournament.maxParticipants} max.
+                {registrationsData?.totalConfirmed ?? 0} bestätigt
+                {tournament?.maxParticipants
+                  ? ` · max. ${tournament.maxParticipants}`
+                  : ""}
               </p>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Spiele</CardTitle>
-            <Swords className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{matches?.length ?? 0}</div>
-            <p className="text-xs text-muted-foreground">
-              {completedMatches.length} abgeschlossen
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Live</CardTitle>
-            <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{liveMatches.length}</div>
-            <p className="text-xs text-muted-foreground">laufende Spiele</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Zeitraum</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-sm font-semibold">
-              {tournament &&
-                format(new Date(tournament.startDate), "dd. MMM", {
-                  locale: de,
-                })}{" "}
-              -{" "}
-              {tournament &&
-                format(new Date(tournament.endDate), "dd. MMM yyyy", {
-                  locale: de,
-                })}
-            </div>
-            {tournament?.location && (
-              <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                <MapPin className="h-3 w-3" />
-                {tournament.location}
+        <Link to="matches" className="block">
+          <Card className="cursor-pointer transition-colors hover:bg-muted/50">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Spiele</CardTitle>
+              <Swords className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{matches?.length ?? 0}</div>
+              <p className="text-xs text-muted-foreground">
+                {completedMatches.length} abgeschlossen
               </p>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link to="matches" className="block">
+          <Card className="cursor-pointer transition-colors hover:bg-muted/50">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Live</CardTitle>
+              <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{liveMatches.length}</div>
+              <p className="text-xs text-muted-foreground">laufende Spiele</p>
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link to="settings" className="block">
+          <Card className="cursor-pointer transition-colors hover:bg-muted/50">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Zeitraum</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-sm font-semibold">
+                {tournament &&
+                  format(new Date(tournament.startDate), "dd. MMM", {
+                    locale: de,
+                  })}{" "}
+                -{" "}
+                {tournament &&
+                  format(new Date(tournament.endDate), "dd. MMM yyyy", {
+                    locale: de,
+                  })}
+              </div>
+              {tournament?.location && (
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <MapPin className="h-3 w-3" />
+                  {tournament.location}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       {liveMatches.length > 0 && (
@@ -165,20 +175,6 @@ export function TournamentDashboardPage() {
         </Card>
       )}
 
-      <div className="flex gap-4">
-        <Link
-          to="participants"
-          className="text-sm text-primary hover:underline"
-        >
-          Teilnehmer verwalten
-        </Link>
-        <Link to="matches" className="text-sm text-primary hover:underline">
-          Alle Spiele anzeigen
-        </Link>
-        <Link to="standings" className="text-sm text-primary hover:underline">
-          Tabellen anzeigen
-        </Link>
-      </div>
     </div>
   );
 }

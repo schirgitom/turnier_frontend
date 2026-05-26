@@ -2,26 +2,29 @@ import { apiClient } from "./client";
 
 export interface RegistrationDto {
   participantId: string;
-  participantName: string;
-  participantEmail: string;
+  participantDisplayName: string;
   status: string;
-  seed: number | null;
+  seedNumber: number | null;
   registeredAt: string;
+  checkedInAt: string | null;
+  isCheckedIn: boolean;
 }
 
-export interface RegistrationsResponse {
-  items: RegistrationDto[];
-  totalCount: number;
+export interface TournamentRegistrationsResponse {
+  tournamentId: string;
+  tournamentName: string;
+  registrations: RegistrationDto[];
+  totalConfirmed: number;
+  totalCheckedIn: number;
 }
 
 export async function getRegistrations(
   tournamentId: string,
-): Promise<RegistrationDto[]> {
-  const response = await apiClient.get<RegistrationDto[] | RegistrationsResponse>(
+): Promise<TournamentRegistrationsResponse> {
+  const response = await apiClient.get<TournamentRegistrationsResponse>(
     `/tournaments/${tournamentId}/registrations`,
   );
-  if (Array.isArray(response.data)) return response.data;
-  return response.data.items;
+  return response.data;
 }
 
 export async function registerParticipant(

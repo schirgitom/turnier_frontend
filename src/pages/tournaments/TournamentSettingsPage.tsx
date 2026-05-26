@@ -1,13 +1,25 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { useParams, useNavigate } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Trash2, CheckCircle2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 import { getTournament, updateTournament, deleteTournament, updateTournamentStatus } from "@/api/tournaments";
+import { getRegistrations } from "@/api/registrations";
+import { getPhases } from "@/api/phases";
+import { getMatches } from "@/api/matches";
+import { TournamentStatusTimeline } from "@/components/tournament/TournamentStatusTimeline";
 import type { UpdateTournamentRequest } from "@/types/tournament";
+import { MatchStatus } from "@/types/match";
 import { getApiErrorMessage } from "@/api/client";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,15 +36,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { TournamentStatus } from "@/types/tournament";
 
-function useToast() {
-  const [message, setMessage] = useState<string | null>(null);
-  const show = useCallback((msg: string) => {
-    setMessage(msg);
-    setTimeout(() => setMessage(null), 3000);
-  }, []);
-  return { message, show };
-}
-
 const updateSchema = z.object({
   name: z.string().min(1, "Name ist erforderlich"),
   description: z.string().optional(),
@@ -46,51 +49,25 @@ const updateSchema = z.object({
 
 type UpdateForm = z.infer<typeof updateSchema>;
 
-interface StatusAction {
-  action: string;
-  label: string;
-  variant?: "default" | "outline" | "destructive";
+const preStartStatuses = new Set([
+  TournamentStatus.Draft,
+  TournamentStatus.RegistrationOpen,
+  TournamentStatus.RegistrationClosed,
+]);
+
+const terminalStatuses = new Set([TournamentStatus.Completed, TournamentStatus.Cancelled]);
+
+function simplifiedLabel(status: TournamentStatus): string {
+  if (preStartStatuses.has(status)) return "Entwurf";
+  if (status === TournamentStatus.InProgress) return "Laufend";
+  if (status === TournamentStatus.Completed) return "Abgeschlossen";
+  return "Abgesagt";
 }
-
-const statusActions: Record<TournamentStatus, StatusAction[]> = {
-  [TournamentStatus.Draft]: [
-    { action: "Publish", label: "Veröffentlichen" },
-  ],
-  [TournamentStatus.Published]: [
-    { action: "OpenRegistration", label: "Anmeldung öffnen" },
-    { action: "Cancel", label: "Abbrechen", variant: "destructive" },
-  ],
-  [TournamentStatus.RegistrationOpen]: [
-    { action: "CloseRegistration", label: "Anmeldung schließen" },
-    { action: "Cancel", label: "Abbrechen", variant: "destructive" },
-  ],
-  [TournamentStatus.RegistrationClosed]: [
-    { action: "Start", label: "Starten" },
-    { action: "Cancel", label: "Abbrechen", variant: "destructive" },
-  ],
-  [TournamentStatus.InProgress]: [
-    { action: "Complete", label: "Abschließen" },
-    { action: "Cancel", label: "Abbrechen", variant: "destructive" },
-  ],
-  [TournamentStatus.Completed]: [],
-  [TournamentStatus.Cancelled]: [],
-};
-
-const statusLabels: Record<TournamentStatus, string> = {
-  [TournamentStatus.Draft]: "Entwurf",
-  [TournamentStatus.Published]: "Veröffentlicht",
-  [TournamentStatus.RegistrationOpen]: "Anmeldung offen",
-  [TournamentStatus.RegistrationClosed]: "Anmeldung geschlossen",
-  [TournamentStatus.InProgress]: "Läuft",
-  [TournamentStatus.Completed]: "Abgeschlossen",
-  [TournamentStatus.Cancelled]: "Abgesagt",
-};
 
 export function TournamentSettingsPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const toast = useToast();
 
   const { data: tournament, isLoading } = useQuery({
     queryKey: ["tournament", tournamentId],
@@ -107,15 +84,46 @@ export function TournamentSettingsPage() {
     },
   });
 
+  const [starting, setStarting] = useState(false);
+
   const statusMutation = useMutation({
     mutationFn: (action: string) =>
       updateTournamentStatus(tournamentId!, action),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tournament", tournamentId] });
       queryClient.invalidateQueries({ queryKey: ["tournaments"] });
-      toast.show("Status erfolgreich geändert");
+      toast.success("Status erfolgreich geändert");
     },
   });
+
+  const handleStart = async () => {
+    if (!tournament) return;
+    setStarting(true);
+    try {
+      let status = tournament.status;
+      if (status === TournamentStatus.Draft) {
+        await updateTournamentStatus(tournamentId!, "OpenRegistration");
+        status = TournamentStatus.RegistrationOpen;
+      }
+      if (status === TournamentStatus.RegistrationOpen) {
+        await updateTournamentStatus(tournamentId!, "CloseRegistration");
+        status = TournamentStatus.RegistrationClosed;
+      }
+      if (status === TournamentStatus.RegistrationClosed) {
+        await updateTournamentStatus(tournamentId!, "Start");
+      }
+      queryClient.invalidateQueries({ queryKey: ["tournament", tournamentId] });
+      queryClient.invalidateQueries({ queryKey: ["tournaments"] });
+      toast.success("Turnier wurde gestartet");
+    } catch (e) {
+      toast.error(`Turnier konnte nicht gestartet werden: ${getApiErrorMessage(e)}`);
+      // Reload so the status badge reflects where the sequence actually stopped.
+      queryClient.invalidateQueries({ queryKey: ["tournament", tournamentId] });
+      queryClient.invalidateQueries({ queryKey: ["tournaments"] });
+    } finally {
+      setStarting(false);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteTournament(tournamentId!),
@@ -123,6 +131,24 @@ export function TournamentSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["tournaments"] });
       navigate("/tournaments");
     },
+  });
+
+  const { data: registrationsData } = useQuery({
+    queryKey: ["registrations", tournamentId],
+    queryFn: () => getRegistrations(tournamentId!),
+    enabled: !!tournamentId,
+  });
+
+  const { data: phasesData } = useQuery({
+    queryKey: ["phases", tournamentId],
+    queryFn: () => getPhases(tournamentId!),
+    enabled: !!tournamentId,
+  });
+
+  const { data: matchesData } = useQuery({
+    queryKey: ["matches", tournamentId],
+    queryFn: () => getMatches(tournamentId!),
+    enabled: !!tournamentId && tournament?.status === TournamentStatus.InProgress,
   });
 
   const {
@@ -157,18 +183,53 @@ export function TournamentSettingsPage() {
     );
   }
 
-  const actions = tournament
-    ? statusActions[tournament.status] ?? []
-    : [];
+  const isPreStart = tournament ? preStartStatuses.has(tournament.status) : false;
+  const isInProgress = tournament?.status === TournamentStatus.InProgress;
+  const isTerminal = tournament ? terminalStatuses.has(tournament.status) : false;
+  const canCancel = !isTerminal && !!tournament;
+
+  const confirmedCount = registrationsData?.totalConfirmed ?? 0;
+  const regCount = registrationsData?.registrations.length ?? 0;
+  const minP = tournament?.minParticipants ?? 0;
+
+  const timelineWarnings: Record<number, string[]> = {};
+  if (tournament && !isTerminal) {
+    if (tournament.status === TournamentStatus.Draft) {
+      const w: string[] = [];
+      if (registrationsData && regCount === 0)
+        w.push("Keine Teilnehmer vorhanden. Füge Teilnehmer hinzu bevor du die Anmeldung öffnest.");
+      if (w.length) timelineWarnings[0] = w;
+    }
+    if (tournament.status === TournamentStatus.RegistrationOpen) {
+      const w: string[] = [];
+      if (registrationsData && minP > 0 && confirmedCount < minP)
+        w.push(`Zu wenige Teilnehmer. Mindestens ${minP} erforderlich, aktuell ${confirmedCount}.`);
+      if (phasesData && phasesData.phases.length === 0)
+        w.push("Keine Phasen konfiguriert. Gehe zu Phasen und füge mindestens eine Phase hinzu.");
+      if (phasesData && !phasesData.isConfigurationValid && phasesData.phases.length > 0)
+        w.push("Phasenkonfiguration ungültig. Prüfe die Phasen-Einstellungen.");
+      if (w.length) timelineWarnings[1] = w;
+    }
+    if (tournament.status === TournamentStatus.RegistrationClosed) {
+      const w: string[] = [];
+      if (phasesData?.phases.some((p) => p.status === "Pending"))
+        w.push("Matches noch nicht generiert. Gehe zu Phasen und generiere die Matches.");
+      if (w.length) timelineWarnings[2] = w;
+    }
+  }
+
+  const blockStart = isPreStart && minP > 0 && !!registrationsData && confirmedCount < minP;
+
+  const matchProgress =
+    isInProgress && matchesData
+      ? {
+          completed: matchesData.filter((m) => m.status === MatchStatus.Completed).length,
+          total: matchesData.length,
+        }
+      : undefined;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      {toast.message && (
-        <div className="flex items-center gap-2 rounded-md border bg-muted px-4 py-3 text-sm">
-          <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-          {toast.message}
-        </div>
-      )}
       <Card>
         <CardHeader>
           <CardTitle>Turnier bearbeiten</CardTitle>
@@ -287,31 +348,123 @@ export function TournamentSettingsPage() {
           <CardDescription className="flex items-center gap-2">
             Aktueller Status:{" "}
             <Badge variant="outline">
-              {statusLabels[tournament!.status]}
+              {tournament ? simplifiedLabel(tournament.status) : ""}
             </Badge>
           </CardDescription>
         </CardHeader>
-        {actions.length > 0 && (
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {actions.map((a) => (
-                <Button
-                  key={a.action}
-                  variant={a.variant ?? "outline"}
-                  onClick={() => statusMutation.mutate(a.action)}
-                  disabled={statusMutation.isPending}
-                >
-                  {statusMutation.isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  {a.label}
-                </Button>
-              ))}
-            </div>
-            {statusMutation.isError && (
-              <p className="text-sm text-destructive">
-                {getApiErrorMessage(statusMutation.error)}
-              </p>
+        {tournament && (
+          <CardContent className="pb-2">
+            <TournamentStatusTimeline
+              status={tournament.status}
+              warnings={timelineWarnings}
+              matchProgress={matchProgress}
+            />
+          </CardContent>
+        )}
+        {!isTerminal && (
+          <CardContent className="space-y-4">
+            {(isPreStart || isInProgress) && (
+              <div className="space-y-2">
+                {isPreStart && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      size="lg"
+                      onClick={handleStart}
+                      disabled={starting || statusMutation.isPending || blockStart}
+                    >
+                      {starting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Wird vorbereitet...
+                        </>
+                      ) : (
+                        "Turnier starten"
+                      )}
+                    </Button>
+
+                    {/* Backward transition: RegistrationOpen → Draft */}
+                    {tournament?.status === TournamentStatus.RegistrationOpen && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span tabIndex={0}>
+                              {/* TODO: Enable when backend supports reverting RegistrationOpen → Draft (action: "Draft") */}
+                              <Button variant="outline" size="sm" disabled>
+                                ← Zurück zu Entwurf
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>Noch nicht verfügbar (Backend ausstehend)</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+
+                    {/* Backward transition: RegistrationClosed → RegistrationOpen */}
+                    {tournament?.status === TournamentStatus.RegistrationClosed && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span tabIndex={0}>
+                              {/* TODO: Enable when backend supports RegistrationClosed → RegistrationOpen (action: "ReopenRegistration") */}
+                              <Button variant="outline" size="sm" disabled>
+                                ← Zurück zu Anmeldung
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>Noch nicht verfügbar (Backend ausstehend)</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+
+                    {blockStart && (
+                      <p className="w-full text-sm text-destructive">
+                        Nicht genug Teilnehmer um das Turnier zu starten.
+                      </p>
+                    )}
+                  </div>
+                )}
+                {isInProgress && (
+                  <Button
+                    size="lg"
+                    className="w-full sm:w-auto"
+                    onClick={() => statusMutation.mutate("Complete")}
+                    disabled={statusMutation.isPending}
+                  >
+                    {statusMutation.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    Turnier abschließen
+                  </Button>
+                )}
+                {statusMutation.isError && (
+                  <p className="text-sm text-destructive">
+                    {getApiErrorMessage(statusMutation.error)}
+                  </p>
+                )}
+              </div>
+            )}
+            {canCancel && (
+              <>
+                <Separator />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Gefahrenbereich
+                  </p>
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      if (confirm("Turnier wirklich abbrechen? Diese Aktion kann nicht rückgängig gemacht werden.")) {
+                        statusMutation.mutate("Cancel");
+                      }
+                    }}
+                    disabled={statusMutation.isPending || starting}
+                  >
+                    {statusMutation.isPending
+                      ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Turnier abbrechen</>
+                      : "Turnier abbrechen"}
+                  </Button>
+                </div>
+              </>
             )}
           </CardContent>
         )}

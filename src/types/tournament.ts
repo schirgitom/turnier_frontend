@@ -2,7 +2,6 @@ export type ParticipantType = "Single" | "Double" | "Team";
 
 export enum TournamentStatus {
   Draft = "Draft",
-  Published = "Published",
   RegistrationOpen = "RegistrationOpen",
   RegistrationClosed = "RegistrationClosed",
   InProgress = "InProgress",

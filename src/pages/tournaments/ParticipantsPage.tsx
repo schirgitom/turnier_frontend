@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { toast } from "sonner";
 import { useOutletContext, useParams } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -7,11 +8,11 @@ import { z } from "zod";
 import {
   Plus,
   Loader2,
+  Pencil,
   Trash2,
   User,
   Users,
   Shield,
-  CheckCircle2,
   Search,
   ArrowUp,
   ArrowDown,
@@ -19,6 +20,7 @@ import {
   UserPlus,
   Check,
   LogIn,
+  Wand2,
 } from "lucide-react";
 import {
   getRegistrations,
@@ -28,9 +30,12 @@ import {
   confirmRegistration,
   checkInRegistration,
 } from "@/api/registrations";
-import { getParticipants, createParticipant } from "@/api/participants";
+import { getParticipants, getParticipant, createParticipant } from "@/api/participants";
+import type { ParticipantDto } from "@/types/participant";
+import { EditParticipantDialog } from "@/components/participants/EditParticipantDialog";
 import { getApiErrorMessage } from "@/api/client";
 import type { TournamentDto } from "@/types/tournament";
+import { TournamentStatus } from "@/types/tournament";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -81,22 +86,12 @@ const statusConfig: Record<
   Withdrawn: { label: "Zurückgezogen", variant: "destructive" },
 };
 
-function useToast() {
-  const [message, setMessage] = useState<string | null>(null);
-  const show = useCallback((msg: string) => {
-    setMessage(msg);
-    setTimeout(() => setMessage(null), 3000);
-  }, []);
-  return { message, show };
-}
-
 export function ParticipantsPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const { tournament } = useOutletContext<{
     tournament: TournamentDto | undefined;
   }>();
   const queryClient = useQueryClient();
-  const toast = useToast();
 
   const regQueryKey = ["registrations", tournamentId];
 
@@ -115,17 +110,31 @@ export function ParticipantsPage() {
   const [debouncedPoolSearch, setDebouncedPoolSearch] = useState("");
   const [poolSelected, setPoolSelected] = useState<Set<string>>(new Set());
 
+  // Generate dialog state
+  const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
+  const [generateCount, setGenerateCount] = useState(10);
+  const [generateProgress, setGenerateProgress] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+
+  // Edit participant state
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editParticipant, setEditParticipant] = useState<ParticipantDto | null>(null);
+  const [fetchingEditId, setFetchingEditId] = useState<string | null>(null);
+
   useEffect(() => {
     const id = setTimeout(() => setDebouncedPoolSearch(poolSearch), 300);
     return () => clearTimeout(id);
   }, [poolSearch]);
 
   // --- Queries ---
-  const { data: registrations, isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: regQueryKey,
     queryFn: () => getRegistrations(tournamentId!),
     enabled: !!tournamentId,
   });
+
+  const registrations = data?.registrations ?? [];
 
   const { data: poolData, isLoading: poolLoading } = useQuery({
     queryKey: ["participants", "pool", debouncedPoolSearch],
@@ -139,7 +148,7 @@ export function ParticipantsPage() {
   });
 
   const registeredIds = useMemo(
-    () => new Set(registrations?.map((r) => r.participantId)),
+    () => new Set(registrations.map((r) => r.participantId)),
     [registrations],
   );
 
@@ -151,14 +160,13 @@ export function ParticipantsPage() {
 
   // --- Sorting ---
   const sortedRegistrations = useMemo(() => {
-    if (!registrations) return [];
     if (!sortColumn) return registrations;
     return [...registrations].sort((a, b) => {
       const dir = sortDirection === "asc" ? 1 : -1;
-      const numA = parseInt(a.participantName.split(" ").pop() ?? "");
-      const numB = parseInt(b.participantName.split(" ").pop() ?? "");
+      const numA = parseInt(a.participantDisplayName.split(" ").pop() ?? "");
+      const numB = parseInt(b.participantDisplayName.split(" ").pop() ?? "");
       if (!isNaN(numA) && !isNaN(numB)) return dir * (numA - numB);
-      return dir * a.participantName.localeCompare(b.participantName, "de");
+      return dir * a.participantDisplayName.localeCompare(b.participantDisplayName, "de");
     });
   }, [registrations, sortColumn, sortDirection]);
 
@@ -229,7 +237,7 @@ export function ParticipantsPage() {
       queryClient.invalidateQueries({ queryKey: regQueryKey });
       setPoolSelected(new Set());
       setAddDialogOpen(false);
-      toast.show(`${ids.length} Teilnehmer registriert`);
+      toast.success(`${ids.length} Teilnehmer registriert`);
     },
   });
 
@@ -256,14 +264,14 @@ export function ParticipantsPage() {
       queryClient.invalidateQueries({ queryKey: ["participants"] });
       setCreateDialogOpen(false);
       createForm.reset();
-      toast.show("Teilnehmer erstellt und registriert");
+      toast.success("Teilnehmer erstellt und registriert");
     },
   });
 
   // --- Bulk confirm ---
   const handleBulkConfirm = async () => {
     const pendingIds = [...selectedIds].filter((id) => {
-      const reg = registrations?.find((r) => r.participantId === id);
+      const reg = registrations.find((r) => r.participantId === id);
       return reg?.status === "Pending";
     });
     if (pendingIds.length === 0) return;
@@ -281,7 +289,61 @@ export function ParticipantsPage() {
     setBulkConfirming(false);
     queryClient.invalidateQueries({ queryKey: regQueryKey });
     setSelectedIds(new Set());
-    toast.show(`${succeeded} Teilnehmer bestätigt`);
+    toast.success(`${succeeded} Teilnehmer bestätigt`);
+  };
+
+  // --- Generate participants ---
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      const poolMeta = await getParticipants({ page: 1, pageSize: 1 });
+      const startIndex = poolMeta.totalCount + 1;
+
+      const newIds: string[] = [];
+      for (let i = 0; i < generateCount; i++) {
+        const x = startIndex + i;
+        setGenerateProgress(`Erstelle Teilnehmer... (${i + 1}/${generateCount})`);
+        const created = await createParticipant(
+          tournament?.participantType ?? "Single",
+          { firstName: "Teilnehmer", lastName: String(x) },
+        );
+        newIds.push(created.id);
+      }
+
+      setGenerateProgress("Registriere Teilnehmer...");
+      await bulkRegister(tournamentId!, newIds);
+
+      for (let i = 0; i < newIds.length; i++) {
+        const id = newIds[i];
+        setGenerateProgress(`Bestätige... (${i + 1}/${newIds.length})`);
+        if (id) await confirmRegistration(tournamentId!, id);
+      }
+
+      queryClient.invalidateQueries({ queryKey: regQueryKey });
+      queryClient.invalidateQueries({ queryKey: ["participants"] });
+      setGenerateDialogOpen(false);
+      toast.success(`${generateCount} Teilnehmer erstellt und bestätigt`);
+    } catch (e) {
+      setGenerateError(getApiErrorMessage(e));
+    } finally {
+      setGenerating(false);
+      setGenerateProgress(null);
+    }
+  };
+
+  // --- Edit participant ---
+  const handleEditClick = async (participantId: string) => {
+    setFetchingEditId(participantId);
+    try {
+      const participant = await getParticipant(participantId);
+      setEditParticipant(participant);
+      setEditDialogOpen(true);
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+    } finally {
+      setFetchingEditId(null);
+    }
   };
 
   // --- Pool dialog helpers ---
@@ -318,18 +380,12 @@ export function ParticipantsPage() {
   const typeLabel = pType ? PARTICIPANT_TYPE_LABELS[pType] : null;
 
   const pendingSelectedCount = [...selectedIds].filter((id) => {
-    const reg = registrations?.find((r) => r.participantId === id);
+    const reg = registrations.find((r) => r.participantId === id);
     return reg?.status === "Pending";
   }).length;
 
   return (
     <div className="space-y-4">
-      {toast.message && (
-        <div className="flex items-center gap-2 rounded-md border bg-muted px-4 py-3 text-sm">
-          <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-          {toast.message}
-        </div>
-      )}
 
       {typeLabel && TypeIcon && (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground w-fit">
@@ -339,9 +395,16 @@ export function ParticipantsPage() {
       )}
 
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">
-          Teilnehmer ({registrations?.length ?? 0})
-        </h2>
+        <div>
+          <h2 className="text-lg font-semibold">
+            Teilnehmer ({registrations.length})
+          </h2>
+          {data && (
+            <p className="text-xs text-muted-foreground">
+              {data.totalConfirmed} bestätigt · {data.totalCheckedIn} eingecheckt
+            </p>
+          )}
+        </div>
         <div className="flex gap-2">
           {selectedIds.size > 0 && pendingSelectedCount > 0 && (
             <Button
@@ -357,6 +420,17 @@ export function ParticipantsPage() {
               {pendingSelectedCount} bestätigen
             </Button>
           )}
+          <Button
+            variant="outline"
+            onClick={() => {
+              setGenerateCount(10);
+              setGenerateError(null);
+              setGenerateDialogOpen(true);
+            }}
+          >
+            <Wand2 className="mr-2 h-4 w-4" />
+            Teilnehmer generieren
+          </Button>
           <Button
             variant="outline"
             onClick={() => {
@@ -433,7 +507,7 @@ export function ParticipantsPage() {
                     />
                   </TableCell>
                   <TableCell className="font-medium">
-                    {reg.participantName}
+                    {reg.participantDisplayName}
                   </TableCell>
                   <TableCell>
                     {cfg ? (
@@ -457,26 +531,40 @@ export function ParticipantsPage() {
                           Bestätigen
                         </Button>
                       )}
-                      {reg.status === "Confirmed" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            checkInMutation.mutate(reg.participantId)
-                          }
-                          disabled={checkInMutation.isPending}
-                        >
-                          <LogIn className="mr-1 h-3.5 w-3.5" />
-                          Check-In
-                        </Button>
-                      )}
+                      {reg.status === "Confirmed" &&
+                        (tournament?.status === TournamentStatus.RegistrationClosed ||
+                          tournament?.status === TournamentStatus.InProgress) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              checkInMutation.mutate(reg.participantId)
+                            }
+                            disabled={checkInMutation.isPending}
+                          >
+                            <LogIn className="mr-1 h-3.5 w-3.5" />
+                            Check-In
+                          </Button>
+                        )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleEditClick(reg.participantId)}
+                        disabled={fetchingEditId === reg.participantId}
+                      >
+                        {fetchingEditId === reg.participantId ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Pencil className="h-4 w-4" />
+                        )}
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => {
                           if (
                             confirm(
-                              `${reg.participantName} wirklich entfernen?`,
+                              `${reg.participantDisplayName} wirklich entfernen?`,
                             )
                           ) {
                             removeMutation.mutate(reg.participantId);
@@ -494,6 +582,66 @@ export function ParticipantsPage() {
           </TableBody>
         </Table>
       )}
+
+      {/* Generate participants dialog */}
+      <Dialog
+        open={generateDialogOpen}
+        onOpenChange={(open) => {
+          if (!generating) setGenerateDialogOpen(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Teilnehmer generieren</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {generateError && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {generateError}
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="generateCount">Anzahl</Label>
+              <Input
+                id="generateCount"
+                type="number"
+                min={1}
+                max={100}
+                value={generateCount}
+                onChange={(e) =>
+                  setGenerateCount(
+                    Math.min(100, Math.max(1, parseInt(e.target.value) || 1)),
+                  )
+                }
+                disabled={generating}
+              />
+            </div>
+            {generateProgress && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {generateProgress}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setGenerateDialogOpen(false)}
+              disabled={generating}
+            >
+              Abbrechen
+            </Button>
+            <Button onClick={handleGenerate} disabled={generating}>
+              {generating ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Wand2 className="mr-2 h-4 w-4" />
+              )}
+              Generieren
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add from global pool dialog */}
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
@@ -576,6 +724,20 @@ export function ParticipantsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit participant dialog */}
+      {editParticipant && (
+        <EditParticipantDialog
+          participantId={editParticipant.id}
+          initialData={editParticipant}
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: regQueryKey });
+            toast.success("Teilnehmer aktualisiert");
+          }}
+        />
+      )}
 
       {/* Create new participant + auto-register dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>

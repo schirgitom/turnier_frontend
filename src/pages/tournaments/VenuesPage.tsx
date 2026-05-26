@@ -252,13 +252,13 @@ export function VenuesPage() {
                       </DialogContent>
                     </Dialog>
                   </div>
-                  {venue.courts.length === 0 ? (
+                  {(venue.courts ?? []).length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       Keine Plätze
                     </p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      {venue.courts.map((court) => (
+                      {(venue.courts ?? []).map((court) => (
                         <Badge
                           key={court.id}
                           variant="secondary"

@@ -2,9 +2,12 @@ import { apiClient } from "./client";
 import type {
   TournamentPhasesResponse,
   PhaseResponse,
+  GroupPhaseResponse,
+  GroupResponse,
   AddGroupPhaseRequest,
   AddEliminationPhaseRequest,
   ReorderPhasesRequest,
+  ReassignParticipantRequest,
 } from "@/types/phase";
 
 const base = (tournamentId: string) => `/tournaments/${tournamentId}/phases`;
@@ -92,4 +95,45 @@ export async function validateConfiguration(
   tournamentId: string,
 ): Promise<void> {
   await apiClient.post(`${base(tournamentId)}/validate`);
+}
+
+export async function generatePhase(
+  tournamentId: string,
+  phaseId: string,
+): Promise<PhaseResponse> {
+  const response = await apiClient.post<PhaseResponse>(
+    `${base(tournamentId)}/${phaseId}/generate`,
+  );
+  return response.data;
+}
+
+export async function generateAllPhases(
+  tournamentId: string,
+): Promise<TournamentPhasesResponse> {
+  const response = await apiClient.post<TournamentPhasesResponse>(
+    `${base(tournamentId)}/generate-all`,
+  );
+  return response.data;
+}
+
+export async function getGroups(
+  tournamentId: string,
+  phaseId: string,
+): Promise<GroupResponse[]> {
+  const response = await apiClient.get<GroupResponse[]>(
+    `${base(tournamentId)}/${phaseId}/groups`,
+  );
+  return response.data;
+}
+
+export async function reassignParticipant(
+  tournamentId: string,
+  phaseId: string,
+  data: ReassignParticipantRequest,
+): Promise<GroupPhaseResponse> {
+  const response = await apiClient.patch<GroupPhaseResponse>(
+    `${base(tournamentId)}/${phaseId}/groups/reassign`,
+    data,
+  );
+  return response.data;
 }

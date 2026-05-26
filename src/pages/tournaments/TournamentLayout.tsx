@@ -13,8 +13,17 @@ import { getTournament } from "@/api/tournaments";
 import { useSignalR } from "@/hooks/useSignalR";
 import { useAuthStore } from "@/store/authStore";
 import { queryClient } from "@/lib/queryClient";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { TournamentStatus } from "@/types/tournament";
+
+function simplifiedLabel(status: TournamentStatus): string {
+  if (status === TournamentStatus.InProgress) return "Laufend";
+  if (status === TournamentStatus.Completed) return "Abgeschlossen";
+  if (status === TournamentStatus.Cancelled) return "Abgesagt";
+  return "Entwurf";
+}
 
 const navItems = [
   { to: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -50,7 +59,14 @@ export function TournamentLayout() {
           {isLoading ? (
             <Skeleton className="h-7 w-64" />
           ) : (
-            <h1 className="text-xl font-bold">{tournament?.name}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl font-bold">{tournament?.name}</h1>
+              {tournament && (
+                <Badge variant="outline">
+                  {simplifiedLabel(tournament.status)}
+                </Badge>
+              )}
+            </div>
           )}
         </div>
         <nav className="flex gap-1 overflow-x-auto px-6">

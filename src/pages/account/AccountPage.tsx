@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useEffect } from "react";
+import { toast } from "sonner";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { CheckCircle2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,20 +64,8 @@ const passwordSchema = z
 type ProfileForm = z.infer<typeof profileSchema>;
 type PasswordForm = z.infer<typeof passwordSchema>;
 
-function useToast() {
-  const [message, setMessage] = useState<string | null>(null);
-
-  const show = useCallback((msg: string) => {
-    setMessage(msg);
-    setTimeout(() => setMessage(null), 3000);
-  }, []);
-
-  return { message, show };
-}
-
 export function AccountPage() {
   const user = useAuthStore((s) => s.user);
-  const toast = useToast();
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
@@ -88,23 +76,16 @@ export function AccountPage() {
         </p>
       </div>
 
-      {toast.message && (
-        <div className="flex items-center gap-2 rounded-md border bg-muted px-4 py-3 text-sm">
-          <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-          {toast.message}
-        </div>
-      )}
-
       <ProfileSection
         displayName={user?.displayName ?? ""}
         email={user?.email ?? ""}
-        onNotAvailable={() => toast.show("Funktion noch nicht verfügbar")}
+        onNotAvailable={() => toast("Funktion noch nicht verfügbar")}
       />
 
       <Separator />
 
       <PasswordSection
-        onNotAvailable={() => toast.show("Funktion noch nicht verfügbar")}
+        onNotAvailable={() => toast("Funktion noch nicht verfügbar")}
       />
     </div>
   );

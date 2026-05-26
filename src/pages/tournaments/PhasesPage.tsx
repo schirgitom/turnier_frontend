@@ -4,18 +4,35 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { AlertTriangle, CheckCircle2, Loader2, Trash2, Users, Swords } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeftRight,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  Trash2,
+  Users,
+  Swords,
+  Zap,
+} from "lucide-react";
+import { toast } from "sonner";
 import {
   getPhases,
   addGroupPhase,
   addEliminationPhase,
   removePhase,
+  generatePhase,
+  generateAllPhases,
+  reassignParticipant,
 } from "@/api/phases";
 import { isGroupPhase } from "@/types/phase";
 import type {
   PhaseResponse,
   GroupPhaseResponse,
   EliminationPhaseResponse,
+  GroupParticipant,
+  ReassignParticipantRequest,
 } from "@/types/phase";
 import { getApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -71,48 +88,265 @@ const eliminationFormatLabels: Record<string, string> = {
 const statusLabels: Record<string, string> = {
   Pending: "Ausstehend",
   Active: "Aktiv",
+  Generated: "Generiert",
   Completed: "Abgeschlossen",
 };
 
+function cleanName(name: string): string {
+  const parts = name.split(" ");
+  if (parts.length === 3 && parts[1] === parts[2]) return `${parts[0]} ${parts[1]}`;
+  return name;
+}
+
+function germanGroupName(name: string): string {
+  return name.replace("Group", "Gruppe");
+}
+
 function GroupPhaseCard({
   phase,
+  tournamentId,
   onDelete,
   deleting,
+  onGenerate,
+  generating,
 }: {
   phase: GroupPhaseResponse;
+  tournamentId: string;
   onDelete: () => void;
   deleting: boolean;
+  onGenerate: () => void;
+  generating: boolean;
 }) {
+  const queryClient = useQueryClient();
+  const canGenerate =
+    phase.status !== "Generated" && phase.status !== "Completed";
+  const hasGroups = (phase.groups?.length ?? 0) > 0;
+
+  const [expanded, setExpanded] = useState(hasGroups);
+  const [reassignTarget, setReassignTarget] = useState<{
+    participant: GroupParticipant;
+    sourceGroupId: string;
+    sourceGroupName: string;
+  } | null>(null);
+  const [targetGroupId, setTargetGroupId] = useState("");
+
+  const reassignMutation = useMutation({
+    mutationFn: (data: ReassignParticipantRequest) =>
+      reassignParticipant(tournamentId, phase.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+      toast.success("Teilnehmer verschoben");
+      setReassignTarget(null);
+    },
+  });
+
+  const openReassign = (
+    participant: GroupParticipant,
+    sourceGroupId: string,
+    sourceGroupName: string,
+  ) => {
+    setTargetGroupId("");
+    reassignMutation.reset();
+    setReassignTarget({ participant, sourceGroupId, sourceGroupName });
+  };
+
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between">
-        <div className="space-y-1">
-          <CardTitle className="text-base">{phase.name}</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge>Gruppenphase</Badge>
-            <Badge variant="outline">{statusLabels[phase.status] ?? phase.status}</Badge>
+    <>
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-base">{phase.name}</CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge>Gruppenphase</Badge>
+              <Badge variant="outline">
+                {statusLabels[phase.status] ?? phase.status}
+              </Badge>
+            </div>
           </div>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onDelete}
-          disabled={deleting}
-        >
-          <Trash2 className="h-4 w-4 text-destructive" />
-        </Button>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
-          <span>{phase.numberOfGroups} Gruppen</span>
-          <span>{phase.qualifiersPerGroup} Aufsteiger</span>
-          <span className="flex items-center gap-1">
-            <Users className="h-3.5 w-3.5" />
-            {phase.participantCount} Teilnehmer
-          </span>
-        </div>
-      </CardContent>
-    </Card>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onGenerate}
+              disabled={!canGenerate || generating}
+            >
+              {generating ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Zap className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Generieren
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onDelete}
+              disabled={deleting}
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setExpanded((e) => !e)}
+              aria-label={expanded ? "Zuklappen" : "Aufklappen"}
+            >
+              {expanded ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </CardHeader>
+
+        {expanded && (
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
+              <span>{phase.numberOfGroups} Gruppen</span>
+              <span>{phase.qualifiersPerGroup} Aufsteiger</span>
+              <span className="flex items-center gap-1">
+                <Users className="h-3.5 w-3.5" />
+                {phase.participantCount} Teilnehmer
+              </span>
+            </div>
+
+            {hasGroups ? (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {(phase.groups ?? []).map((group) => (
+                  <div
+                    key={group.id}
+                    className="rounded-lg border p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold">
+                        {germanGroupName(group.name)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {group.participants.length} Teilnehmer
+                      </span>
+                    </div>
+                    <ul className="space-y-1">
+                      {group.participants.map((p) => (
+                        <li
+                          key={p.participantId}
+                          className="flex items-center justify-between text-sm"
+                        >
+                          <span>{cleanName(p.displayName)}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={reassignMutation.isPending}
+                            onClick={() =>
+                              openReassign(
+                                p,
+                                group.id,
+                                germanGroupName(group.name),
+                              )
+                            }
+                          >
+                            {reassignMutation.isPending &&
+                            reassignTarget?.participant.participantId ===
+                              p.participantId ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <ArrowLeftRight className="h-3 w-3" />
+                            )}
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Phase noch nicht generiert.
+              </p>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
+      <Dialog
+        open={reassignTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReassignTarget(null);
+            reassignMutation.reset();
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Teilnehmer verschieben</DialogTitle>
+          </DialogHeader>
+          {reassignTarget && (
+            <div className="space-y-4">
+              {reassignMutation.isError && (
+                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                  {getApiErrorMessage(reassignMutation.error)}
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label>Teilnehmer</Label>
+                <p className="rounded-md border bg-muted px-3 py-2 text-sm">
+                  {cleanName(reassignTarget.participant.displayName)}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Von Gruppe</Label>
+                <p className="rounded-md border bg-muted px-3 py-2 text-sm">
+                  {reassignTarget.sourceGroupName}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Nach Gruppe</Label>
+                <Select value={targetGroupId} onValueChange={setTargetGroupId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Gruppe auswählen…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(phase.groups ?? [])
+                      .filter((g) => g.id !== reassignTarget.sourceGroupId)
+                      .map((g) => (
+                        <SelectItem key={g.id} value={g.id}>
+                          {germanGroupName(g.name)}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button
+                  variant="outline"
+                  onClick={() => setReassignTarget(null)}
+                  disabled={reassignMutation.isPending}
+                >
+                  Abbrechen
+                </Button>
+                <Button
+                  disabled={!targetGroupId || reassignMutation.isPending}
+                  onClick={() =>
+                    reassignMutation.mutate({
+                      participantId: reassignTarget.participant.participantId,
+                      sourceGroupId: reassignTarget.sourceGroupId,
+                      targetGroupId,
+                    })
+                  }
+                >
+                  {reassignMutation.isPending && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Verschieben
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -120,11 +354,19 @@ function EliminationPhaseCard({
   phase,
   onDelete,
   deleting,
+  onGenerate,
+  generating,
 }: {
   phase: EliminationPhaseResponse;
   onDelete: () => void;
   deleting: boolean;
+  onGenerate: () => void;
+  generating: boolean;
 }) {
+  const canGenerate =
+    phase.status !== "Generated" && phase.status !== "Completed";
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between">
@@ -132,34 +374,67 @@ function EliminationPhaseCard({
           <CardTitle className="text-base">{phase.name}</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">K.O.-Phase</Badge>
-            <Badge variant="outline">{statusLabels[phase.status] ?? phase.status}</Badge>
+            <Badge variant="outline">
+              {statusLabels[phase.status] ?? phase.status}
+            </Badge>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onDelete}
-          disabled={deleting}
-        >
-          <Trash2 className="h-4 w-4 text-destructive" />
-        </Button>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
-          <span>
-            {eliminationFormatLabels[phase.eliminationFormat] ?? phase.eliminationFormat}
-          </span>
-          <span className="flex items-center gap-1">
-            <Swords className="h-3.5 w-3.5" />
-            Bracket {phase.bracketSize}
-          </span>
-          <span className="flex items-center gap-1">
-            <Users className="h-3.5 w-3.5" />
-            {phase.participantCount} Teilnehmer
-          </span>
-          {phase.hasThirdPlaceMatch && <span>Platz-3-Spiel</span>}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onGenerate}
+            disabled={!canGenerate || generating}
+          >
+            {generating ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Zap className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Generieren
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onDelete}
+            disabled={deleting}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setExpanded((e) => !e)}
+            aria-label={expanded ? "Zuklappen" : "Aufklappen"}
+          >
+            {expanded ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </Button>
         </div>
-      </CardContent>
+      </CardHeader>
+
+      {expanded && (
+        <CardContent>
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
+            <span>
+              {eliminationFormatLabels[phase.eliminationFormat] ??
+                phase.eliminationFormat}
+            </span>
+            <span className="flex items-center gap-1">
+              <Swords className="h-3.5 w-3.5" />
+              Bracket {phase.bracketSize}
+            </span>
+            <span className="flex items-center gap-1">
+              <Users className="h-3.5 w-3.5" />
+              {phase.participantCount} Teilnehmer
+            </span>
+            {phase.hasThirdPlaceMatch && <span>Platz-3-Spiel</span>}
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 }
@@ -169,6 +444,9 @@ export function PhasesPage() {
   const queryClient = useQueryClient();
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [elimDialogOpen, setElimDialogOpen] = useState(false);
+  const [generatingPhaseId, setGeneratingPhaseId] = useState<string | null>(
+    null,
+  );
 
   const { data, isLoading } = useQuery({
     queryKey: ["phases", tournamentId],
@@ -226,6 +504,30 @@ export function PhasesPage() {
     },
   });
 
+  const generateAllMutation = useMutation({
+    mutationFn: () => generateAllPhases(tournamentId!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+      toast.success("Alle Phasen generiert");
+    },
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error));
+    },
+  });
+
+  const handleGeneratePhase = async (phaseId: string) => {
+    setGeneratingPhaseId(phaseId);
+    try {
+      await generatePhase(tournamentId!, phaseId);
+      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+      toast.success("Phase generiert");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    } finally {
+      setGeneratingPhaseId(null);
+    }
+  };
+
   const handleDelete = (phase: PhaseResponse) => {
     if (confirm(`${phase.name} wirklich löschen?`)) {
       deleteMutation.mutate(phase.id);
@@ -241,23 +543,38 @@ export function PhasesPage() {
     );
   }
 
+  const configInvalid =
+    data !== undefined &&
+    !data.isConfigurationValid &&
+    data.validationErrors.length > 0;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold">
-            Phasen ({phases.length})
-          </h2>
-          {data && phases.length > 0 && (
-            data.isConfigurationValid ? (
-              <Badge variant="outline" className="border-green-500 text-green-600">
-                <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                Konfiguration gültig
-              </Badge>
-            ) : null
+          <h2 className="text-lg font-semibold">Phasen ({phases.length})</h2>
+          {data && phases.length > 0 && data.isConfigurationValid && (
+            <Badge
+              variant="outline"
+              className="border-green-500 text-green-600"
+            >
+              <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+              Konfiguration gültig
+            </Badge>
           )}
         </div>
         <div className="flex gap-2">
+          <Button
+            onClick={() => generateAllMutation.mutate()}
+            disabled={configInvalid || generateAllMutation.isPending}
+          >
+            {generateAllMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Zap className="mr-2 h-4 w-4" />
+            )}
+            Alle Phasen generieren
+          </Button>
           <Button
             variant="outline"
             onClick={() => {
@@ -290,13 +607,13 @@ export function PhasesPage() {
         </div>
       </div>
 
-      {data && !data.isConfigurationValid && data.validationErrors.length > 0 && (
+      {configInvalid && (
         <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-4 dark:border-yellow-500/30 dark:bg-yellow-500/10">
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-500" />
             <div className="space-y-1">
               <p className="text-sm font-medium text-yellow-800 dark:text-yellow-400">
-                Konfiguration ungültig
+                Konfiguration ungültig:
               </p>
               <ul className="list-inside list-disc text-sm text-yellow-700 dark:text-yellow-400/80">
                 {data.validationErrors.map((err) => (
@@ -321,8 +638,11 @@ export function PhasesPage() {
                 <GroupPhaseCard
                   key={phase.id}
                   phase={phase}
+                  tournamentId={tournamentId!}
                   onDelete={() => handleDelete(phase)}
                   deleting={deleteMutation.isPending}
+                  onGenerate={() => handleGeneratePhase(phase.id)}
+                  generating={generatingPhaseId === phase.id}
                 />
               ) : (
                 <EliminationPhaseCard
@@ -330,6 +650,8 @@ export function PhasesPage() {
                   phase={phase}
                   onDelete={() => handleDelete(phase)}
                   deleting={deleteMutation.isPending}
+                  onGenerate={() => handleGeneratePhase(phase.id)}
+                  generating={generatingPhaseId === phase.id}
                 />
               ),
             )}
@@ -406,10 +728,7 @@ export function PhasesPage() {
               </Select>
             </div>
             <DialogFooter>
-              <Button
-                type="submit"
-                disabled={createGroupMutation.isPending}
-              >
+              <Button type="submit" disabled={createGroupMutation.isPending}>
                 {createGroupMutation.isPending && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
@@ -488,10 +807,7 @@ export function PhasesPage() {
               </Label>
             </div>
             <DialogFooter>
-              <Button
-                type="submit"
-                disabled={createElimMutation.isPending}
-              >
+              <Button type="submit" disabled={createElimMutation.isPending}>
                 {createElimMutation.isPending && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}

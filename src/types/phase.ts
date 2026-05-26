@@ -27,9 +27,15 @@ export interface GroupPhaseResponse {
   groups: GroupResponse[];
 }
 
+export interface GroupParticipant {
+  participantId: string;
+  displayName: string;
+}
+
 export interface GroupResponse {
   id: string;
   name: string;
+  participants: GroupParticipant[];
 }
 
 export interface EliminationPhaseResponse {
@@ -61,4 +67,10 @@ export interface TournamentPhasesResponse {
 
 export interface ReorderPhasesRequest {
   phaseIds: string[];
+}
+
+export interface ReassignParticipantRequest {
+  participantId: string;
+  sourceGroupId: string;
+  targetGroupId: string;
 }

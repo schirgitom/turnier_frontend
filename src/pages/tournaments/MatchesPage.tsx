@@ -41,8 +41,8 @@ type ResultForm = z.infer<typeof resultSchema>;
 
 const statusLabels: Record<MatchStatus, string> = {
   [MatchStatus.Scheduled]: "Geplant",
-  [MatchStatus.InProgress]: "Läuft",
-  [MatchStatus.Completed]: "Beendet",
+  [MatchStatus.InProgress]: "Laufend",
+  [MatchStatus.Completed]: "Abgeschlossen",
   [MatchStatus.Cancelled]: "Abgesagt",
 };
 
@@ -55,6 +55,13 @@ const statusVariant: Record<
   [MatchStatus.Completed]: "outline",
   [MatchStatus.Cancelled]: "destructive",
 };
+
+// TODO: backend should return participant names in match response
+function participantName(name: string | null, id: string | null) {
+  if (name) return <span>{name}</span>;
+  if (id) return <span className="font-mono text-muted-foreground">{id.slice(0, 8)}</span>;
+  return <span className="text-muted-foreground">TBD</span>;
+}
 
 export function MatchesPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
@@ -119,9 +126,9 @@ export function MatchesPage() {
           <TableBody>
             {matches?.map((match) => (
               <TableRow key={match.id}>
-                <TableCell>R{match.roundNumber}</TableCell>
+                <TableCell>{match.roundNumber}</TableCell>
                 <TableCell className="font-medium">
-                  {match.homeParticipantName ?? "TBD"}
+                  {participantName(match.homeParticipantName, match.homeParticipantId)}
                 </TableCell>
                 <TableCell className="text-center font-bold">
                   {match.status === MatchStatus.Completed ||
@@ -130,7 +137,7 @@ export function MatchesPage() {
                     : "- : -"}
                 </TableCell>
                 <TableCell className="font-medium">
-                  {match.awayParticipantName ?? "TBD"}
+                  {participantName(match.awayParticipantName, match.awayParticipantId)}
                 </TableCell>
                 <TableCell>{match.courtName ?? "-"}</TableCell>
                 <TableCell>
@@ -188,7 +195,7 @@ export function MatchesPage() {
               )}
               <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-4">
                 <div className="space-y-2">
-                  <Label>{selectedMatch.homeParticipantName}</Label>
+                  <Label>{participantName(selectedMatch.homeParticipantName, selectedMatch.homeParticipantId)}</Label>
                   <Input
                     type="number"
                     min={0}
@@ -203,7 +210,7 @@ export function MatchesPage() {
                 </div>
                 <span className="pb-2 text-xl font-bold">:</span>
                 <div className="space-y-2">
-                  <Label>{selectedMatch.awayParticipantName}</Label>
+                  <Label>{participantName(selectedMatch.awayParticipantName, selectedMatch.awayParticipantId)}</Label>
                   <Input
                     type="number"
                     min={0}

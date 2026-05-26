@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
+import { Toaster } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import { refreshTokens } from "@/api/auth";
 import { router } from "@/router";
@@ -22,6 +23,7 @@ initAuth().then(() => {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <RouterProvider router={router} />
+      <Toaster position="bottom-right" richColors closeButton />
     </StrictMode>,
   );
 });
