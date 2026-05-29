@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { MatchDto, SubmitResultRequest } from "@/types/match";
+import type { MatchDto, RecordMatchResultRequest } from "@/types/match";
 
 export async function getMatches(
   tournamentId: string,
@@ -24,7 +24,7 @@ export async function startMatch(
 export async function submitResult(
   tournamentId: string,
   matchId: string,
-  data: SubmitResultRequest,
+  data: RecordMatchResultRequest,
 ): Promise<void> {
   await apiClient.post(
     `/tournaments/${tournamentId}/matches/${matchId}/result`,

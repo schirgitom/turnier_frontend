@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useParams } from "react-router";
+import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -42,6 +43,7 @@ import {
   generateAllPhases,
   reassignParticipant,
 } from "@/api/phases";
+import { getPhaseVenues } from "@/api/phaseVenues";
 import { getRegistrations } from "@/api/registrations";
 import { isGroupPhase } from "@/types/phase";
 import type {
@@ -50,6 +52,7 @@ import type {
   GroupResponse,
   EliminationPhaseResponse,
   GroupParticipant,
+  GenerateMatchesResponse,
   ReassignParticipantRequest,
 } from "@/types/phase";
 import { getApiErrorMessage } from "@/api/client";
@@ -263,6 +266,12 @@ function GroupPhaseCard({
     enabled: expanded && hasGroups,
   });
 
+  const { data: phaseVenues } = useQuery({
+    queryKey: ["phaseVenues", tournamentId, phase.id],
+    queryFn: () => getPhaseVenues(tournamentId, phase.id),
+  });
+  const venueCount = phaseVenues?.venues.length ?? 0;
+
   const assignedIds = new Set(
     (phase.groups ?? []).flatMap((g) =>
       g.participants.map((p) => p.participantId),
@@ -329,6 +338,21 @@ function GroupPhaseCard({
               <Badge variant="outline">
                 {statusLabels[phase.status] ?? phase.status}
               </Badge>
+              {phaseVenues && (
+                venueCount > 0 ? (
+                  <Badge variant="secondary">
+                    {venueCount} Spielstätte{venueCount !== 1 ? "n" : ""}
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="border-yellow-400 text-yellow-600 dark:border-yellow-500 dark:text-yellow-400"
+                  >
+                    <AlertTriangle className="mr-1 h-3 w-3" />
+                    Keine Spielstätte
+                  </Badge>
+                )
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -575,12 +599,14 @@ function GroupPhaseCard({
 
 function EliminationPhaseCard({
   phase,
+  tournamentId,
   onDelete,
   deleting,
   onGenerate,
   generating,
 }: {
   phase: EliminationPhaseResponse;
+  tournamentId: string;
   onDelete: () => void;
   deleting: boolean;
   onGenerate: () => void;
@@ -589,6 +615,12 @@ function EliminationPhaseCard({
   const canGenerate =
     phase.status !== "Generated" && phase.status !== "Completed";
   const [expanded, setExpanded] = useState(false);
+
+  const { data: phaseVenues } = useQuery({
+    queryKey: ["phaseVenues", tournamentId, phase.id],
+    queryFn: () => getPhaseVenues(tournamentId, phase.id),
+  });
+  const venueCount = phaseVenues?.venues.length ?? 0;
 
   return (
     <Card>
@@ -600,6 +632,21 @@ function EliminationPhaseCard({
             <Badge variant="outline">
               {statusLabels[phase.status] ?? phase.status}
             </Badge>
+            {phaseVenues && (
+              venueCount > 0 ? (
+                <Badge variant="secondary">
+                  {venueCount} Spielstätte{venueCount !== 1 ? "n" : ""}
+                </Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="border-yellow-400 text-yellow-600 dark:border-yellow-500 dark:text-yellow-400"
+                >
+                  <AlertTriangle className="mr-1 h-3 w-3" />
+                  Keine Spielstätte
+                </Badge>
+              )
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -660,6 +707,24 @@ function EliminationPhaseCard({
       )}
     </Card>
   );
+}
+
+function showSchedulingToasts(result: GenerateMatchesResponse) {
+  if (result.autoScheduled) {
+    let msg = `Phase generiert. ${result.scheduledMatchCount} Spiele automatisch eingeplant.`;
+    if (result.estimatedEndTime) {
+      msg += ` Geschätztes Ende: ${format(new Date(result.estimatedEndTime), "HH:mm")} Uhr`;
+    }
+    toast.success(msg);
+  } else {
+    toast.success("Phase generiert. Keine Spielstätte konfiguriert – Spiele ohne Zeitplan.");
+  }
+  for (const warning of result.schedulingWarnings) {
+    toast.warning(warning);
+  }
+  if (result.unscheduledMatchCount > 0) {
+    toast.warning(`${result.unscheduledMatchCount} Spiele konnten nicht eingeplant werden.`);
+  }
 }
 
 export function PhasesPage() {
@@ -729,9 +794,10 @@ export function PhasesPage() {
 
   const generateAllMutation = useMutation({
     mutationFn: () => generateAllPhases(tournamentId!),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
-      toast.success("Alle Phasen generiert");
+      queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
+      showSchedulingToasts(result);
     },
     onError: (error) => {
       toast.error(getApiErrorMessage(error));
@@ -741,9 +807,10 @@ export function PhasesPage() {
   const handleGeneratePhase = async (phaseId: string) => {
     setGeneratingPhaseId(phaseId);
     try {
-      await generatePhase(tournamentId!, phaseId);
+      const result = await generatePhase(tournamentId!, phaseId);
       queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
-      toast.success("Phase generiert");
+      queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
+      showSchedulingToasts(result);
     } catch (error) {
       toast.error(getApiErrorMessage(error));
     } finally {
@@ -830,6 +897,8 @@ export function PhasesPage() {
         </div>
       </div>
 
+
+
       {configInvalid && (
         <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-4 dark:border-yellow-500/30 dark:bg-yellow-500/10">
           <div className="flex items-start gap-2">
@@ -871,6 +940,7 @@ export function PhasesPage() {
                 <EliminationPhaseCard
                   key={phase.id}
                   phase={phase}
+                  tournamentId={tournamentId!}
                   onDelete={() => handleDelete(phase)}
                   deleting={deleteMutation.isPending}
                   onGenerate={() => handleGeneratePhase(phase.id)}

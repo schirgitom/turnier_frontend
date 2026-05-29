@@ -1480,6 +1480,8 @@ export interface components {
             formatType?: string | null;
             seeding?: boolean;
             visibility?: string | null;
+            /** Format: int32 */
+            matchSetsToWinOverride?: number | null;
         };
         CreateVenueRequest: {
             name?: string | null;
@@ -1499,9 +1501,13 @@ export interface components {
         };
         RecordMatchResultRequest: {
             /** Format: int32 */
-            homePoints?: number;
-            /** Format: int32 */
-            awayPoints?: number;
+            setsToWinOverride?: number;
+            sets?: {
+                /** Format: int32 */
+                homeScore?: number;
+                /** Format: int32 */
+                awayScore?: number;
+            }[] | null;
         };
         RefreshTokenRequest: {
             refreshToken?: string | null;
@@ -1553,6 +1559,8 @@ export interface components {
             /** Format: int32 */
             minParticipants?: number;
             visibility?: string | null;
+            /** Format: int32 */
+            matchSetsToWinOverride?: number | null;
         };
         UpdateTournamentVenueRequest: {
             /** Format: date-time */

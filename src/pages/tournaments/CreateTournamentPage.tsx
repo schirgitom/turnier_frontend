@@ -123,6 +123,11 @@ const createSchema = z
     advancingPerGroup: z.number().min(1).max(8).nullable(),
     seeding: z.boolean(),
     visibility: z.string().min(1, "Sichtbarkeit ist erforderlich"),
+    matchSetsToWinOverride: z
+      .preprocess(
+        (value) => (value === "" || value == null ? null : Number(value)),
+        z.number().int("Bitte eine ganze Zahl eingeben").min(1, "Mindestens 1").nullable(),
+      ),
   })
   .refine(
     (d) => d.maxParticipants >= d.minParticipants,
@@ -223,6 +228,7 @@ export function CreateTournamentPage() {
       formatType: "",
       advancingPerGroup: null,
       visibility: "Private",
+      matchSetsToWinOverride: null,
     },
   });
 
@@ -276,6 +282,7 @@ export function CreateTournamentPage() {
       visibility: data.visibility,
       minParticipants: data.minParticipants,
       maxParticipants: data.maxParticipants,
+      matchSetsToWinOverride: data.matchSetsToWinOverride,
       ...(data.formatType === "GroupAndElimination" && data.advancingPerGroup
         ? { advancingPerGroup: data.advancingPerGroup }
         : {}),
@@ -730,6 +737,22 @@ export function CreateTournamentPage() {
                     </p>
                   </div>
                 </label>
+
+                <div className="space-y-2">
+                  <Label htmlFor="matchSetsToWinOverride">Sätze zum Sieg (optional)</Label>
+                  <Input
+                    id="matchSetsToWinOverride"
+                    type="number"
+                    min={1}
+                    placeholder="Sport-Default verwenden"
+                    {...register("matchSetsToWinOverride")}
+                  />
+                  {errors.matchSetsToWinOverride && (
+                    <p className="text-sm text-destructive">
+                      {errors.matchSetsToWinOverride.message}
+                    </p>
+                  )}
+                </div>
               </CardContent>
             </>
           )}

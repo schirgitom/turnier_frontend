@@ -24,6 +24,8 @@ export interface GroupPhaseResponse {
   qualifiersCount: number;
   groupFormat: string;
   participantCount: number;
+  totalMatches?: number;
+  completedMatches?: number;
   groups: GroupResponse[];
 }
 
@@ -49,6 +51,8 @@ export interface EliminationPhaseResponse {
   byeCount: number;
   participantCount: number;
   rounds: number;
+  totalMatches?: number;
+  completedMatches?: number;
 }
 
 export type PhaseResponse = GroupPhaseResponse | EliminationPhaseResponse;
@@ -63,6 +67,14 @@ export interface TournamentPhasesResponse {
   phases: PhaseResponse[];
   isConfigurationValid: boolean;
   validationErrors: string[];
+}
+
+export interface GenerateMatchesResponse {
+  autoScheduled: boolean;
+  scheduledMatchCount: number;
+  unscheduledMatchCount: number;
+  estimatedEndTime: string | null;
+  schedulingWarnings: string[];
 }
 
 export interface ReorderPhasesRequest {

@@ -18,7 +18,7 @@ import {
   ArrowDown,
   ArrowUpDown,
   UserPlus,
-  Check,
+  UserMinus,
   LogIn,
   Wand2,
 } from "lucide-react";
@@ -27,15 +27,14 @@ import {
   registerParticipant,
   bulkRegister,
   removeRegistration,
-  confirmRegistration,
   checkInRegistration,
+  withdrawRegistration,
 } from "@/api/registrations";
 import { getParticipants, getParticipant, createParticipant } from "@/api/participants";
 import type { ParticipantDto } from "@/types/participant";
 import { EditParticipantDialog } from "@/components/participants/EditParticipantDialog";
 import { getApiErrorMessage } from "@/api/client";
 import type { TournamentDto } from "@/types/tournament";
-import { TournamentStatus } from "@/types/tournament";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,9 +55,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 const createSchema = z.object({
-  displayName: z.string().min(1, "Name ist erforderlich"),
+  firstName: z.string().min(1, "Vorname ist erforderlich"),
+  lastName: z.string().min(1, "Nachname ist erforderlich"),
   dateOfBirth: z.string().optional(),
 });
 
@@ -80,9 +81,8 @@ const statusConfig: Record<
   string,
   { label: string; variant: "secondary" | "default" | "outline" | "destructive" }
 > = {
-  Pending: { label: "Ausstehend", variant: "secondary" },
-  Confirmed: { label: "Bestätigt", variant: "default" },
-  CheckedIn: { label: "Eingecheckt", variant: "outline" },
+  Confirmed: { label: "Angemeldet", variant: "secondary" },
+  CheckedIn: { label: "Eingecheckt", variant: "default" },
   Withdrawn: { label: "Zurückgezogen", variant: "destructive" },
 };
 
@@ -98,8 +98,6 @@ export function ParticipantsPage() {
   // --- State ---
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkConfirming, setBulkConfirming] = useState(false);
 
   // Sort state for registrations table
   const [sortColumn, setSortColumn] = useState<"name" | null>(null);
@@ -135,6 +133,7 @@ export function ParticipantsPage() {
   });
 
   const registrations = data?.registrations ?? [];
+  const activeCount = registrations.filter((r) => r.status !== "Withdrawn").length;
 
   const { data: poolData, isLoading: poolLoading } = useQuery({
     queryKey: ["participants", "pool", debouncedPoolSearch],
@@ -153,8 +152,7 @@ export function ParticipantsPage() {
   );
 
   const availablePool = useMemo(
-    () =>
-      (poolData?.items ?? []).filter((p) => !registeredIds.has(p.id)),
+    () => (poolData?.items ?? []).filter((p) => !registeredIds.has(p.id)),
     [poolData, registeredIds],
   );
 
@@ -182,45 +180,23 @@ export function ParticipantsPage() {
     }
   };
 
-  // --- Selection ---
-  const allSelected =
-    sortedRegistrations.length > 0 &&
-    sortedRegistrations.every((r) => selectedIds.has(r.participantId));
-
-  const toggleSelectAll = () => {
-    if (allSelected) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(
-        new Set(sortedRegistrations.map((r) => r.participantId)),
-      );
-    }
-  };
-
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   // --- Mutations ---
-  const confirmMutation = useMutation({
-    mutationFn: (participantId: string) =>
-      confirmRegistration(tournamentId!, participantId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: regQueryKey });
-    },
-  });
-
   const checkInMutation = useMutation({
     mutationFn: (participantId: string) =>
       checkInRegistration(tournamentId!, participantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: regQueryKey });
     },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const withdrawMutation = useMutation({
+    mutationFn: (participantId: string) =>
+      withdrawRegistration(tournamentId!, participantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: regQueryKey });
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
   const removeMutation = useMutation({
@@ -229,12 +205,14 @@ export function ParticipantsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: regQueryKey });
     },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
   const addBulkMutation = useMutation({
     mutationFn: (ids: string[]) => bulkRegister(tournamentId!, ids),
     onSuccess: (_data, ids) => {
       queryClient.invalidateQueries({ queryKey: regQueryKey });
+      queryClient.invalidateQueries({ queryKey: ["participants"] });
       setPoolSelected(new Set());
       setAddDialogOpen(false);
       toast.success(`${ids.length} Teilnehmer registriert`);
@@ -251,8 +229,8 @@ export function ParticipantsPage() {
       const created = await createParticipant(
         tournament?.participantType ?? "Single",
         {
-          firstName: data.displayName,
-          lastName: "",
+          firstName: data.firstName,
+          lastName: data.lastName,
           dateOfBirth: data.dateOfBirth || undefined,
         },
       );
@@ -267,30 +245,6 @@ export function ParticipantsPage() {
       toast.success("Teilnehmer erstellt und registriert");
     },
   });
-
-  // --- Bulk confirm ---
-  const handleBulkConfirm = async () => {
-    const pendingIds = [...selectedIds].filter((id) => {
-      const reg = registrations.find((r) => r.participantId === id);
-      return reg?.status === "Pending";
-    });
-    if (pendingIds.length === 0) return;
-
-    setBulkConfirming(true);
-    let succeeded = 0;
-    for (const id of pendingIds) {
-      try {
-        await confirmRegistration(tournamentId!, id);
-        succeeded++;
-      } catch {
-        // continue with remaining
-      }
-    }
-    setBulkConfirming(false);
-    queryClient.invalidateQueries({ queryKey: regQueryKey });
-    setSelectedIds(new Set());
-    toast.success(`${succeeded} Teilnehmer bestätigt`);
-  };
 
   // --- Generate participants ---
   const handleGenerate = async () => {
@@ -314,19 +268,13 @@ export function ParticipantsPage() {
       setGenerateProgress("Registriere Teilnehmer...");
       await bulkRegister(tournamentId!, newIds);
 
-      for (let i = 0; i < newIds.length; i++) {
-        const id = newIds[i];
-        setGenerateProgress(`Bestätige... (${i + 1}/${newIds.length})`);
-        if (id) await confirmRegistration(tournamentId!, id);
-      }
-
-      queryClient.invalidateQueries({ queryKey: regQueryKey });
-      queryClient.invalidateQueries({ queryKey: ["participants"] });
       setGenerateDialogOpen(false);
-      toast.success(`${generateCount} Teilnehmer erstellt und bestätigt`);
+      toast.success(`${generateCount} Teilnehmer erstellt und registriert`);
     } catch (e) {
       setGenerateError(getApiErrorMessage(e));
     } finally {
+      queryClient.invalidateQueries({ queryKey: regQueryKey });
+      queryClient.invalidateQueries({ queryKey: ["participants"] });
       setGenerating(false);
       setGenerateProgress(null);
     }
@@ -379,14 +327,8 @@ export function ParticipantsPage() {
   const TypeIcon = pType ? PARTICIPANT_TYPE_ICONS[pType] : null;
   const typeLabel = pType ? PARTICIPANT_TYPE_LABELS[pType] : null;
 
-  const pendingSelectedCount = [...selectedIds].filter((id) => {
-    const reg = registrations.find((r) => r.participantId === id);
-    return reg?.status === "Pending";
-  }).length;
-
   return (
     <div className="space-y-4">
-
       {typeLabel && TypeIcon && (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground w-fit">
           <TypeIcon className="h-4 w-4" />
@@ -396,30 +338,14 @@ export function ParticipantsPage() {
 
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">
-            Teilnehmer ({registrations.length})
-          </h2>
-          {data && (
+          <h2 className="text-lg font-semibold">Teilnehmer ({activeCount})</h2>
+          {data && data.totalCheckedIn > 0 && (
             <p className="text-xs text-muted-foreground">
-              {data.totalConfirmed} bestätigt · {data.totalCheckedIn} eingecheckt
+              {data.totalCheckedIn} eingecheckt
             </p>
           )}
         </div>
         <div className="flex gap-2">
-          {selectedIds.size > 0 && pendingSelectedCount > 0 && (
-            <Button
-              variant="outline"
-              onClick={handleBulkConfirm}
-              disabled={bulkConfirming}
-            >
-              {bulkConfirming ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Check className="mr-2 h-4 w-4" />
-              )}
-              {pendingSelectedCount} bestätigen
-            </Button>
-          )}
           <Button
             variant="outline"
             onClick={() => {
@@ -463,14 +389,6 @@ export function ParticipantsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-input"
-                  checked={allSelected}
-                  onChange={toggleSelectAll}
-                />
-              </TableHead>
               <TableHead>
                 <button
                   type="button"
@@ -496,16 +414,12 @@ export function ParticipantsPage() {
           <TableBody>
             {sortedRegistrations.map((reg) => {
               const cfg = statusConfig[reg.status];
+              const isWithdrawn = reg.status === "Withdrawn";
               return (
-                <TableRow key={reg.participantId}>
-                  <TableCell>
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-input"
-                      checked={selectedIds.has(reg.participantId)}
-                      onChange={() => toggleSelect(reg.participantId)}
-                    />
-                  </TableCell>
+                <TableRow
+                  key={reg.participantId}
+                  className={cn(isWithdrawn && "opacity-50")}
+                >
                   <TableCell className="font-medium">
                     {reg.participantDisplayName}
                   </TableCell>
@@ -518,34 +432,28 @@ export function ParticipantsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
-                      {reg.status === "Pending" && (
+                      {!isWithdrawn && reg.status !== "CheckedIn" && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() =>
-                            confirmMutation.mutate(reg.participantId)
-                          }
-                          disabled={confirmMutation.isPending}
+                          onClick={() => checkInMutation.mutate(reg.participantId)}
+                          disabled={checkInMutation.isPending}
                         >
-                          <Check className="mr-1 h-3.5 w-3.5" />
-                          Bestätigen
+                          <LogIn className="mr-1 h-3.5 w-3.5" />
+                          Check-In
                         </Button>
                       )}
-                      {reg.status === "Confirmed" &&
-                        (tournament?.status === TournamentStatus.RegistrationClosed ||
-                          tournament?.status === TournamentStatus.InProgress) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() =>
-                              checkInMutation.mutate(reg.participantId)
-                            }
-                            disabled={checkInMutation.isPending}
-                          >
-                            <LogIn className="mr-1 h-3.5 w-3.5" />
-                            Check-In
-                          </Button>
-                        )}
+                      {!isWithdrawn && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => withdrawMutation.mutate(reg.participantId)}
+                          disabled={withdrawMutation.isPending}
+                        >
+                          <UserMinus className="mr-1 h-3.5 w-3.5" />
+                          Zurückziehen
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -562,11 +470,7 @@ export function ParticipantsPage() {
                         variant="ghost"
                         size="icon"
                         onClick={() => {
-                          if (
-                            confirm(
-                              `${reg.participantDisplayName} wirklich entfernen?`,
-                            )
-                          ) {
+                          if (confirm(`${reg.participantDisplayName} wirklich entfernen?`)) {
                             removeMutation.mutate(reg.participantId);
                           }
                         }}
@@ -633,11 +537,16 @@ export function ParticipantsPage() {
             </Button>
             <Button onClick={handleGenerate} disabled={generating}>
               {generating ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Generiere...
+                </>
               ) : (
-                <Wand2 className="mr-2 h-4 w-4" />
+                <>
+                  <Wand2 className="mr-2 h-4 w-4" />
+                  Generieren
+                </>
               )}
-              Generieren
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -703,9 +612,7 @@ export function ParticipantsPage() {
             <Button
               variant="outline"
               onClick={handleAddAll}
-              disabled={
-                availablePool.length === 0 || addBulkMutation.isPending
-              }
+              disabled={availablePool.length === 0 || addBulkMutation.isPending}
             >
               {addBulkMutation.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -757,14 +664,20 @@ export function ParticipantsPage() {
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="displayName">Name</Label>
-              <Input
-                id="displayName"
-                {...createForm.register("displayName")}
-              />
-              {createForm.formState.errors.displayName && (
+              <Label htmlFor="firstName">Vorname</Label>
+              <Input id="firstName" {...createForm.register("firstName")} />
+              {createForm.formState.errors.firstName && (
                 <p className="text-sm text-destructive">
-                  {createForm.formState.errors.displayName.message}
+                  {createForm.formState.errors.firstName.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lastName">Nachname</Label>
+              <Input id="lastName" {...createForm.register("lastName")} />
+              {createForm.formState.errors.lastName && (
+                <p className="text-sm text-destructive">
+                  {createForm.formState.errors.lastName.message}
                 </p>
               )}
             </div>
@@ -777,10 +690,7 @@ export function ParticipantsPage() {
               />
             </div>
             <DialogFooter>
-              <Button
-                type="submit"
-                disabled={createAndRegisterMutation.isPending}
-              >
+              <Button type="submit" disabled={createAndRegisterMutation.isPending}>
                 {createAndRegisterMutation.isPending && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}

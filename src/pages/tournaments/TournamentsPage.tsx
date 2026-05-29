@@ -17,21 +17,22 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TournamentStatus } from "@/types/tournament";
 
-function simplifiedLabel(status: TournamentStatus): string {
-  if (status === TournamentStatus.InProgress) return "Laufend";
-  if (status === TournamentStatus.Completed) return "Abgeschlossen";
-  if (status === TournamentStatus.Cancelled) return "Abgesagt";
-  return "Entwurf";
-}
+const STATUS_LABELS: Record<TournamentStatus, string> = {
+  [TournamentStatus.Preparation]: "In Vorbereitung",
+  [TournamentStatus.InProgress]: "Laufend",
+  [TournamentStatus.Completed]: "Abgeschlossen",
+  [TournamentStatus.Cancelled]: "Abgesagt",
+};
 
-function simplifiedVariant(
-  status: TournamentStatus,
-): "default" | "secondary" | "destructive" | "outline" {
-  if (status === TournamentStatus.InProgress) return "default";
-  if (status === TournamentStatus.Cancelled) return "destructive";
-  if (status === TournamentStatus.Completed) return "secondary";
-  return "secondary";
-}
+const STATUS_VARIANTS: Record<
+  TournamentStatus,
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  [TournamentStatus.Preparation]: "secondary",
+  [TournamentStatus.InProgress]: "default",
+  [TournamentStatus.Completed]: "secondary",
+  [TournamentStatus.Cancelled]: "destructive",
+};
 
 export function TournamentsPage() {
   const [page, setPage] = useState(1);
@@ -103,8 +104,8 @@ export function TournamentsPage() {
                       <CardTitle className="text-lg">
                         {tournament.name}
                       </CardTitle>
-                      <Badge variant={simplifiedVariant(tournament.status)}>
-                        {simplifiedLabel(tournament.status)}
+                      <Badge variant={STATUS_VARIANTS[tournament.status]}>
+                        {STATUS_LABELS[tournament.status]}
                       </Badge>
                     </div>
                     {tournament.description && (

@@ -7,11 +7,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Trash2 } from "lucide-react";
 import { getTournament, updateTournament, deleteTournament, updateTournamentStatus } from "@/api/tournaments";
-import { getRegistrations } from "@/api/registrations";
-import { getPhases } from "@/api/phases";
 import { getMatches } from "@/api/matches";
 import { TournamentStatusTimeline } from "@/components/tournament/TournamentStatusTimeline";
 import type { UpdateTournamentRequest } from "@/types/tournament";
+import { TournamentStatus } from "@/types/tournament";
 import { MatchStatus } from "@/types/match";
 import { getApiErrorMessage } from "@/api/client";
 import {
@@ -20,6 +19,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,7 +40,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { TournamentStatus } from "@/types/tournament";
 
 const updateSchema = z.object({
   name: z.string().min(1, "Name ist erforderlich"),
@@ -44,35 +49,42 @@ const updateSchema = z.object({
   endDate: z.string().min(1, "Enddatum ist erforderlich"),
   maxParticipants: z.string().optional(),
   minParticipants: z.string().optional(),
+  matchSetsToWinOverride: z
+    .string()
+    .optional()
+    .refine(
+      (v) => !v || (Number.isInteger(Number(v)) && Number(v) >= 1),
+      "Mindestens 1",
+    ),
   visibility: z.enum(["Private", "Public"]),
 });
 
 type UpdateForm = z.infer<typeof updateSchema>;
 
-const preStartStatuses = new Set([
-  TournamentStatus.Draft,
-  TournamentStatus.RegistrationOpen,
-  TournamentStatus.RegistrationClosed,
-]);
-
-const terminalStatuses = new Set([TournamentStatus.Completed, TournamentStatus.Cancelled]);
-
-function simplifiedLabel(status: TournamentStatus): string {
-  if (preStartStatuses.has(status)) return "Entwurf";
-  if (status === TournamentStatus.InProgress) return "Laufend";
-  if (status === TournamentStatus.Completed) return "Abgeschlossen";
-  return "Abgesagt";
-}
+const STATUS_LABELS: Record<TournamentStatus, string> = {
+  [TournamentStatus.Preparation]: "In Vorbereitung",
+  [TournamentStatus.InProgress]: "Laufend",
+  [TournamentStatus.Completed]: "Abgeschlossen",
+  [TournamentStatus.Cancelled]: "Abgesagt",
+};
 
 export function TournamentSettingsPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const [revertDialog, setRevertDialog] = useState<"toPreparation" | "toInProgress" | null>(null);
+
   const { data: tournament, isLoading } = useQuery({
     queryKey: ["tournament", tournamentId],
     queryFn: () => getTournament(tournamentId!),
     enabled: !!tournamentId,
+  });
+
+  const { data: matchesData } = useQuery({
+    queryKey: ["matches", tournamentId],
+    queryFn: () => getMatches(tournamentId!),
+    enabled: !!tournamentId && tournament?.status === TournamentStatus.InProgress,
   });
 
   const updateMutation = useMutation({
@@ -84,46 +96,26 @@ export function TournamentSettingsPage() {
     },
   });
 
-  const [starting, setStarting] = useState(false);
+  const STATUS_SUCCESS_MESSAGES: Record<string, string> = {
+    Start: "Turnier wurde gestartet",
+    Complete: "Turnier wurde abgeschlossen",
+    Revert: "Turnier zurück in Vorbereitung",
+    Cancel: "Turnier wurde abgebrochen",
+  };
 
   const statusMutation = useMutation({
     mutationFn: (action: string) =>
       updateTournamentStatus(tournamentId!, action),
-    onSuccess: () => {
+    onSuccess: (_data, action) => {
       queryClient.invalidateQueries({ queryKey: ["tournament", tournamentId] });
       queryClient.invalidateQueries({ queryKey: ["tournaments"] });
-      toast.success("Status erfolgreich geändert");
+      setRevertDialog(null);
+      toast.success(STATUS_SUCCESS_MESSAGES[action] ?? "Status erfolgreich geändert");
+    },
+    onError: (e) => {
+      toast.error(getApiErrorMessage(e));
     },
   });
-
-  const handleStart = async () => {
-    if (!tournament) return;
-    setStarting(true);
-    try {
-      let status = tournament.status;
-      if (status === TournamentStatus.Draft) {
-        await updateTournamentStatus(tournamentId!, "OpenRegistration");
-        status = TournamentStatus.RegistrationOpen;
-      }
-      if (status === TournamentStatus.RegistrationOpen) {
-        await updateTournamentStatus(tournamentId!, "CloseRegistration");
-        status = TournamentStatus.RegistrationClosed;
-      }
-      if (status === TournamentStatus.RegistrationClosed) {
-        await updateTournamentStatus(tournamentId!, "Start");
-      }
-      queryClient.invalidateQueries({ queryKey: ["tournament", tournamentId] });
-      queryClient.invalidateQueries({ queryKey: ["tournaments"] });
-      toast.success("Turnier wurde gestartet");
-    } catch (e) {
-      toast.error(`Turnier konnte nicht gestartet werden: ${getApiErrorMessage(e)}`);
-      // Reload so the status badge reflects where the sequence actually stopped.
-      queryClient.invalidateQueries({ queryKey: ["tournament", tournamentId] });
-      queryClient.invalidateQueries({ queryKey: ["tournaments"] });
-    } finally {
-      setStarting(false);
-    }
-  };
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteTournament(tournamentId!),
@@ -131,24 +123,6 @@ export function TournamentSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["tournaments"] });
       navigate("/tournaments");
     },
-  });
-
-  const { data: registrationsData } = useQuery({
-    queryKey: ["registrations", tournamentId],
-    queryFn: () => getRegistrations(tournamentId!),
-    enabled: !!tournamentId,
-  });
-
-  const { data: phasesData } = useQuery({
-    queryKey: ["phases", tournamentId],
-    queryFn: () => getPhases(tournamentId!),
-    enabled: !!tournamentId,
-  });
-
-  const { data: matchesData } = useQuery({
-    queryKey: ["matches", tournamentId],
-    queryFn: () => getMatches(tournamentId!),
-    enabled: !!tournamentId && tournament?.status === TournamentStatus.InProgress,
   });
 
   const {
@@ -168,6 +142,7 @@ export function TournamentSettingsPage() {
           endDate: tournament.endDate.split("T")[0] ?? "",
           maxParticipants: tournament.maxParticipants?.toString(),
           minParticipants: (tournament.minParticipants ?? 2).toString(),
+          matchSetsToWinOverride: tournament.matchSetsToWinOverride?.toString() ?? "",
           visibility: (tournament.visibility === "Public" ? "Public" : "Private") as "Public" | "Private",
         }
       : undefined,
@@ -183,42 +158,11 @@ export function TournamentSettingsPage() {
     );
   }
 
-  const isPreStart = tournament ? preStartStatuses.has(tournament.status) : false;
+  const isPreparation = tournament?.status === TournamentStatus.Preparation;
   const isInProgress = tournament?.status === TournamentStatus.InProgress;
-  const isTerminal = tournament ? terminalStatuses.has(tournament.status) : false;
-  const canCancel = !isTerminal && !!tournament;
-
-  const confirmedCount = registrationsData?.totalConfirmed ?? 0;
-  const regCount = registrationsData?.registrations.length ?? 0;
-  const minP = tournament?.minParticipants ?? 0;
-
-  const timelineWarnings: Record<number, string[]> = {};
-  if (tournament && !isTerminal) {
-    if (tournament.status === TournamentStatus.Draft) {
-      const w: string[] = [];
-      if (registrationsData && regCount === 0)
-        w.push("Keine Teilnehmer vorhanden. Füge Teilnehmer hinzu bevor du die Anmeldung öffnest.");
-      if (w.length) timelineWarnings[0] = w;
-    }
-    if (tournament.status === TournamentStatus.RegistrationOpen) {
-      const w: string[] = [];
-      if (registrationsData && minP > 0 && confirmedCount < minP)
-        w.push(`Zu wenige Teilnehmer. Mindestens ${minP} erforderlich, aktuell ${confirmedCount}.`);
-      if (phasesData && phasesData.phases.length === 0)
-        w.push("Keine Phasen konfiguriert. Gehe zu Phasen und füge mindestens eine Phase hinzu.");
-      if (phasesData && !phasesData.isConfigurationValid && phasesData.phases.length > 0)
-        w.push("Phasenkonfiguration ungültig. Prüfe die Phasen-Einstellungen.");
-      if (w.length) timelineWarnings[1] = w;
-    }
-    if (tournament.status === TournamentStatus.RegistrationClosed) {
-      const w: string[] = [];
-      if (phasesData?.phases.some((p) => p.status === "Pending"))
-        w.push("Matches noch nicht generiert. Gehe zu Phasen und generiere die Matches.");
-      if (w.length) timelineWarnings[2] = w;
-    }
-  }
-
-  const blockStart = isPreStart && minP > 0 && !!registrationsData && confirmedCount < minP;
+  const isCompleted = tournament?.status === TournamentStatus.Completed;
+  const isCancelled = tournament?.status === TournamentStatus.Cancelled;
+  const canCancel = !isCompleted && !isCancelled && !!tournament;
 
   const matchProgress =
     isInProgress && matchesData
@@ -234,16 +178,23 @@ export function TournamentSettingsPage() {
         <CardHeader>
           <CardTitle>Turnier bearbeiten</CardTitle>
         </CardHeader>
-        <form onSubmit={handleSubmit((data) => updateMutation.mutate({
-          name: data.name,
-          description: data.description,
-          location: data.location,
-          startDate: data.startDate,
-          endDate: data.endDate,
-          maxParticipants: data.maxParticipants ? Number(data.maxParticipants) : null,
-          minParticipants: data.minParticipants ? Number(data.minParticipants) : null,
-          visibility: data.visibility,
-        }))}>
+        <form
+          onSubmit={handleSubmit((data) =>
+            updateMutation.mutate({
+              name: data.name,
+              description: data.description,
+              location: data.location,
+              startDate: data.startDate,
+              endDate: data.endDate,
+              maxParticipants: data.maxParticipants ? Number(data.maxParticipants) : null,
+              minParticipants: data.minParticipants ? Number(data.minParticipants) : null,
+              matchSetsToWinOverride: data.matchSetsToWinOverride
+                ? Number(data.matchSetsToWinOverride)
+                : null,
+              visibility: data.visibility,
+            })
+          )}
+        >
           <CardContent className="space-y-4">
             {updateMutation.isError && (
               <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -259,9 +210,7 @@ export function TournamentSettingsPage() {
               <Label htmlFor="name">Name</Label>
               <Input id="name" {...register("name")} />
               {errors.name && (
-                <p className="text-sm text-destructive">
-                  {errors.name.message}
-                </p>
+                <p className="text-sm text-destructive">{errors.name.message}</p>
               )}
             </div>
             <div className="space-y-2">
@@ -277,9 +226,7 @@ export function TournamentSettingsPage() {
                 <Label htmlFor="startDate">Startdatum</Label>
                 <Input id="startDate" type="date" {...register("startDate")} />
                 {errors.startDate && (
-                  <p className="text-sm text-destructive">
-                    {errors.startDate.message}
-                  </p>
+                  <p className="text-sm text-destructive">{errors.startDate.message}</p>
                 )}
               </div>
               <div className="space-y-2">
@@ -308,9 +255,24 @@ export function TournamentSettingsPage() {
               </div>
             </div>
             <div className="space-y-2">
+              <Label htmlFor="matchSetsToWinOverride">Sätze zum Sieg (optional)</Label>
+              <Input
+                id="matchSetsToWinOverride"
+                type="number"
+                min={1}
+                placeholder="Sport-Default verwenden"
+                {...register("matchSetsToWinOverride")}
+              />
+              {errors.matchSetsToWinOverride && (
+                <p className="text-sm text-destructive">
+                  {errors.matchSetsToWinOverride.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
               <Label>Sichtbarkeit</Label>
               <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="radio"
                     className="h-4 w-4"
@@ -319,7 +281,7 @@ export function TournamentSettingsPage() {
                   />
                   <span className="text-sm">Privat</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="radio"
                     className="h-4 w-4"
@@ -348,7 +310,7 @@ export function TournamentSettingsPage() {
           <CardDescription className="flex items-center gap-2">
             Aktueller Status:{" "}
             <Badge variant="outline">
-              {tournament ? simplifiedLabel(tournament.status) : ""}
+              {tournament ? STATUS_LABELS[tournament.status] : ""}
             </Badge>
           </CardDescription>
         </CardHeader>
@@ -356,77 +318,32 @@ export function TournamentSettingsPage() {
           <CardContent className="pb-2">
             <TournamentStatusTimeline
               status={tournament.status}
-              warnings={timelineWarnings}
               matchProgress={matchProgress}
             />
           </CardContent>
         )}
-        {!isTerminal && (
-          <CardContent className="space-y-4">
-            {(isPreStart || isInProgress) && (
-              <div className="space-y-2">
-                {isPreStart && (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Button
-                      size="lg"
-                      onClick={handleStart}
-                      disabled={starting || statusMutation.isPending || blockStart}
-                    >
-                      {starting ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Wird vorbereitet...
-                        </>
-                      ) : (
-                        "Turnier starten"
-                      )}
-                    </Button>
 
-                    {/* Backward transition: RegistrationOpen → Draft */}
-                    {tournament?.status === TournamentStatus.RegistrationOpen && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span tabIndex={0}>
-                              {/* TODO: Enable when backend supports reverting RegistrationOpen → Draft (action: "Draft") */}
-                              <Button variant="outline" size="sm" disabled>
-                                ← Zurück zu Entwurf
-                              </Button>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>Noch nicht verfügbar (Backend ausstehend)</TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
+        {/* Action buttons — hidden only when Cancelled */}
+        {!isCancelled && (
+          <CardContent className="space-y-4 pt-2">
+            <div className="flex flex-wrap items-center gap-3">
+              {isPreparation && (
+                <Button
+                  size="lg"
+                  onClick={() => statusMutation.mutate("Start")}
+                  disabled={statusMutation.isPending}
+                >
+                  {statusMutation.isPending && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Turnier starten
+                </Button>
+              )}
 
-                    {/* Backward transition: RegistrationClosed → RegistrationOpen */}
-                    {tournament?.status === TournamentStatus.RegistrationClosed && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span tabIndex={0}>
-                              {/* TODO: Enable when backend supports RegistrationClosed → RegistrationOpen (action: "ReopenRegistration") */}
-                              <Button variant="outline" size="sm" disabled>
-                                ← Zurück zu Anmeldung
-                              </Button>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>Noch nicht verfügbar (Backend ausstehend)</TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-
-                    {blockStart && (
-                      <p className="w-full text-sm text-destructive">
-                        Nicht genug Teilnehmer um das Turnier zu starten.
-                      </p>
-                    )}
-                  </div>
-                )}
-                {isInProgress && (
+              {isInProgress && (
+                <>
                   <Button
                     size="lg"
-                    className="w-full sm:w-auto"
                     onClick={() => statusMutation.mutate("Complete")}
                     disabled={statusMutation.isPending}
                   >
@@ -435,14 +352,40 @@ export function TournamentSettingsPage() {
                     )}
                     Turnier abschließen
                   </Button>
-                )}
-                {statusMutation.isError && (
-                  <p className="text-sm text-destructive">
-                    {getApiErrorMessage(statusMutation.error)}
-                  </p>
-                )}
-              </div>
-            )}
+
+                  {/* TODO: verify action string with backend — using "Revert" for now */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={statusMutation.isPending}
+                    onClick={() => setRevertDialog("toPreparation")}
+                  >
+                    ← Zurück zu Vorbereitung
+                  </Button>
+                </>
+              )}
+
+              {isCompleted && (
+                <>
+                  {/* TODO: Enable when backend supports Completed → InProgress (action: "ReopenInProgress") */}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span tabIndex={0}>
+                          <Button variant="outline" size="sm" disabled>
+                            ← Zurück zu Laufend
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Zurücksetzen wird vom Backend noch nicht unterstützt
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </>
+              )}
+            </div>
+
             {canCancel && (
               <>
                 <Separator />
@@ -453,15 +396,24 @@ export function TournamentSettingsPage() {
                   <Button
                     variant="destructive"
                     onClick={() => {
-                      if (confirm("Turnier wirklich abbrechen? Diese Aktion kann nicht rückgängig gemacht werden.")) {
+                      if (
+                        confirm(
+                          "Turnier wirklich abbrechen? Diese Aktion kann nicht rückgängig gemacht werden.",
+                        )
+                      ) {
                         statusMutation.mutate("Cancel");
                       }
                     }}
-                    disabled={statusMutation.isPending || starting}
+                    disabled={statusMutation.isPending}
                   >
-                    {statusMutation.isPending
-                      ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Turnier abbrechen</>
-                      : "Turnier abbrechen"}
+                    {statusMutation.isPending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Turnier abbrechen
+                      </>
+                    ) : (
+                      "Turnier abbrechen"
+                    )}
                   </Button>
                 </div>
               </>
@@ -469,6 +421,42 @@ export function TournamentSettingsPage() {
           </CardContent>
         )}
       </Card>
+
+      {/* Confirmation dialog for backward transitions */}
+      <Dialog open={revertDialog !== null} onOpenChange={(open) => !open && setRevertDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {revertDialog === "toPreparation"
+                ? "Zurück zu Vorbereitung?"
+                : "Zurück zu Laufend?"}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {revertDialog === "toPreparation"
+              ? "Das Turnier wird pausiert. Laufende Ergebnisse bleiben erhalten. Gruppenverteilung und Phasen können wieder bearbeitet werden."
+              : "Das Turnier wird wieder als laufend markiert. Ergebnisse bleiben erhalten."}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevertDialog(null)}>
+              Abbrechen
+            </Button>
+            <Button
+              onClick={() =>
+                statusMutation.mutate(
+                  revertDialog === "toPreparation" ? "Revert" : "ReopenInProgress",
+                )
+              }
+              disabled={statusMutation.isPending}
+            >
+              {statusMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Bestätigen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Separator />
 

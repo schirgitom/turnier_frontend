@@ -1,14 +1,18 @@
 import { useParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import { getPhases } from "@/api/phases";
-import { getStandings } from "@/api/standings";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { getPhases, getPhaseMatches } from "@/api/phases";
+import { getStandings, recalculateStandings } from "@/api/standings";
+import { BracketView } from "@/components/tournament/BracketView";
+import { isGroupPhase } from "@/types/phase";
+import { isEliminationBracket } from "@/types/bracket";
+import type { GroupMatchesResponse } from "@/types/bracket";
+import { getApiErrorMessage } from "@/api/client";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -18,17 +22,39 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { GroupStandings } from "@/types/standings";
+
+const MATCH_STATUS_LABELS: Record<string, string> = {
+  Scheduled: "Geplant",
+  InProgress: "Laufend",
+  Completed: "Abgeschlossen",
+  Cancelled: "Abgesagt",
+};
+
+const MATCH_STATUS_VARIANT: Record<
+  string,
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  Scheduled: "secondary",
+  InProgress: "default",
+  Completed: "outline",
+  Cancelled: "destructive",
+};
+
+function toGerman(name: string) {
+  return name.replace(/^Group\s/, "Gruppe ");
+}
 
 export function StandingsPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
 
-  const { data, isLoading: phasesLoading } = useQuery({
+  const { data: phasesData, isLoading: phasesLoading } = useQuery({
     queryKey: ["phases", tournamentId],
     queryFn: () => getPhases(tournamentId!),
     enabled: !!tournamentId,
   });
 
-  const phases = data?.phases ?? [];
+  const phases = phasesData?.phases ?? [];
 
   if (phasesLoading) {
     return (
@@ -54,22 +80,208 @@ export function StandingsPage() {
         <TabsList>
           {phases.map((phase) => (
             <TabsTrigger key={phase.id} value={phase.id}>
-              {phase.name}
+              {toGerman(phase.name)}
             </TabsTrigger>
           ))}
         </TabsList>
         {phases.map((phase) => (
           <TabsContent key={phase.id} value={phase.id}>
-            <PhaseStandings
-              tournamentId={tournamentId!}
-              phaseId={phase.id}
-            />
+            {isGroupPhase(phase) ? (
+              <GroupPhaseView tournamentId={tournamentId!} phaseId={phase.id} />
+            ) : (
+              <EliminationPhaseView
+                tournamentId={tournamentId!}
+                phaseId={phase.id}
+              />
+            )}
           </TabsContent>
         ))}
       </Tabs>
     </div>
   );
 }
+
+// ─── Group phase: Tabelle + Spielplan sub-tabs ────────────────────────────────
+
+function GroupPhaseView({
+  tournamentId,
+  phaseId,
+}: {
+  tournamentId: string;
+  phaseId: string;
+}) {
+  return (
+    <Tabs defaultValue="tabelle">
+      <TabsList className="mt-2">
+        <TabsTrigger value="tabelle">Tabelle</TabsTrigger>
+        <TabsTrigger value="spielplan">Spielplan</TabsTrigger>
+      </TabsList>
+      <TabsContent value="tabelle">
+        <PhaseStandings tournamentId={tournamentId} phaseId={phaseId} />
+      </TabsContent>
+      <TabsContent value="spielplan">
+        <GroupMatchesPlan tournamentId={tournamentId} phaseId={phaseId} />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function GroupMatchesPlan({
+  tournamentId,
+  phaseId,
+}: {
+  tournamentId: string;
+  phaseId: string;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["phaseMatches", tournamentId, phaseId],
+    queryFn: () => getPhaseMatches(tournamentId, phaseId),
+    enabled: !!tournamentId && !!phaseId,
+  });
+
+  if (isLoading) return <Skeleton className="h-48 w-full" />;
+  if (!data || isEliminationBracket(data)) return null;
+
+  const groups = data as GroupMatchesResponse[];
+  const allEmpty = groups.every((g) => g.matches.length === 0);
+
+  if (allEmpty) {
+    return (
+      <p className="py-4 text-center text-muted-foreground">
+        Noch keine Spiele generiert.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {groups.map((group) => (
+        <div key={group.groupId} className="overflow-hidden rounded-lg border">
+          <div className="border-b bg-muted/40 px-4 py-2.5">
+            <h3 className="font-semibold">{toGerman(group.groupName)}</h3>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Runde</TableHead>
+                <TableHead>Heim</TableHead>
+                <TableHead className="text-center">Ergebnis</TableHead>
+                <TableHead>Auswärts</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {group.matches.map((match) => {
+                const isCompleted = match.status === "Completed";
+                const homeWon =
+                  isCompleted &&
+                  match.score !== null &&
+                  match.score.homePoints > match.score.awayPoints;
+                const awayWon =
+                  isCompleted &&
+                  match.score !== null &&
+                  match.score.awayPoints > match.score.homePoints;
+
+                return (
+                  <TableRow key={match.id}>
+                    <TableCell className="text-sm text-muted-foreground">
+                      Runde {match.round}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        homeWon
+                          ? "font-semibold"
+                          : isCompleted
+                            ? "text-muted-foreground"
+                            : "font-medium",
+                      )}
+                    >
+                      {match.homeParticipantName ?? "TBD"}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {match.score ? (
+                        <div className="inline-flex items-stretch overflow-hidden rounded border text-sm">
+                          <span
+                            className={cn(
+                              "px-2 py-0.5 font-bold",
+                              homeWon
+                                ? "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {match.score.homePoints}
+                          </span>
+                          <span className="flex items-center border-x px-1 text-xs text-muted-foreground">
+                            :
+                          </span>
+                          <span
+                            className={cn(
+                              "px-2 py-0.5 font-bold",
+                              awayWon
+                                ? "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {match.score.awayPoints}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">– : –</span>
+                      )}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        awayWon
+                          ? "font-semibold"
+                          : isCompleted
+                            ? "text-muted-foreground"
+                            : "font-medium",
+                      )}
+                    >
+                      {match.awayParticipantName ?? "TBD"}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          MATCH_STATUS_VARIANT[match.status] ?? "secondary"
+                        }
+                      >
+                        {MATCH_STATUS_LABELS[match.status] ?? match.status}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Elimination phase: bracket view ─────────────────────────────────────────
+
+function EliminationPhaseView({
+  tournamentId,
+  phaseId,
+}: {
+  tournamentId: string;
+  phaseId: string;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["phaseMatches", tournamentId, phaseId],
+    queryFn: () => getPhaseMatches(tournamentId, phaseId),
+    enabled: !!tournamentId && !!phaseId,
+  });
+
+  if (isLoading) return <Skeleton className="h-48 w-full" />;
+  if (!data || !isEliminationBracket(data)) return null;
+
+  return <BracketView data={data} />;
+}
+
+// ─── Group standings table ────────────────────────────────────────────────────
 
 function PhaseStandings({
   tournamentId,
@@ -78,76 +290,148 @@ function PhaseStandings({
   tournamentId: string;
   phaseId: string;
 }) {
-  const { data: standings, isLoading } = useQuery({
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
     queryKey: ["standings", tournamentId, phaseId],
     queryFn: () => getStandings(tournamentId, phaseId),
+    enabled: !!tournamentId && !!phaseId,
   });
+
+  const recalculateMutation = useMutation({
+    mutationFn: () => recalculateStandings(tournamentId, phaseId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["standings", tournamentId, phaseId],
+      });
+      toast.success("Tabelle neu berechnet");
+    },
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error));
+    },
+  });
+
+  const groups = data?.groups ?? [];
+  const isEmpty =
+    groups.length === 0 || groups.every((g) => g.standings.length === 0);
 
   if (isLoading) {
     return <Skeleton className="h-48 w-full" />;
   }
 
-  if (!standings?.groups || standings.groups.length === 0) {
-    return (
-      <p className="py-4 text-center text-muted-foreground">
-        Noch keine Tabellendaten vorhanden.
-      </p>
-    );
-  }
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => recalculateMutation.mutate()}
+          disabled={recalculateMutation.isPending}
+        >
+          {recalculateMutation.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-2 h-4 w-4" />
+          )}
+          Tabelle neu berechnen
+        </Button>
+      </div>
+
+      {isEmpty ? (
+        <p className="py-4 text-center text-muted-foreground">
+          Noch keine Ergebnisse erfasst.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {groups.map((group) => (
+            <GroupTable key={group.groupId} group={group} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GroupTable({ group }: { group: GroupStandings }) {
+  const lastQualifiedIdx = group.standings.reduce(
+    (last, e, i) => (e.isQualified ? i : last),
+    -1,
+  );
 
   return (
-    <div className="space-y-6">
-      {standings.groups.map((group) => (
-        <Card key={group.groupName}>
-          <CardHeader>
-            <CardTitle className="text-base">{group.groupName}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">#</TableHead>
-                  <TableHead>Team</TableHead>
-                  <TableHead className="text-center">Sp</TableHead>
-                  <TableHead className="text-center">S</TableHead>
-                  <TableHead className="text-center">U</TableHead>
-                  <TableHead className="text-center">N</TableHead>
-                  <TableHead className="text-center">Tore</TableHead>
-                  <TableHead className="text-center">Diff</TableHead>
-                  <TableHead className="text-center font-bold">Pkt</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {group.entries.map((entry) => (
-                  <TableRow key={entry.participantId}>
-                    <TableCell className="font-medium">{entry.rank}</TableCell>
-                    <TableCell className="font-medium">
-                      {entry.participantName}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {entry.played}
-                    </TableCell>
-                    <TableCell className="text-center">{entry.won}</TableCell>
-                    <TableCell className="text-center">{entry.drawn}</TableCell>
-                    <TableCell className="text-center">{entry.lost}</TableCell>
-                    <TableCell className="text-center">
-                      {entry.goalsFor}:{entry.goalsAgainst}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {entry.goalDifference > 0
-                        ? `+${entry.goalDifference}`
-                        : entry.goalDifference}
-                    </TableCell>
-                    <TableCell className="text-center font-bold">
-                      {entry.points}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      ))}
+    <div className="overflow-hidden rounded-lg border">
+      <div className="border-b bg-muted/40 px-4 py-2.5">
+        <h3 className="font-semibold">{toGerman(group.groupName)}</h3>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-10">#</TableHead>
+            <TableHead>Teilnehmer</TableHead>
+            <TableHead className="text-center">Sp</TableHead>
+            <TableHead className="text-center text-green-600 dark:text-green-400">
+              S
+            </TableHead>
+            <TableHead className="text-center text-red-600 dark:text-red-400">
+              N
+            </TableHead>
+            <TableHead className="text-center">U</TableHead>
+            <TableHead className="text-center">Sätze</TableHead>
+            <TableHead className="text-center">Diff</TableHead>
+            <TableHead className="text-center font-bold">Pkt</TableHead>
+            <TableHead className="text-center">Status</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {group.standings.map((entry, idx) => (
+            <TableRow
+              key={entry.participantId}
+              className={cn(
+                entry.isQualified && "bg-green-50/60 dark:bg-green-950/20",
+                idx === lastQualifiedIdx &&
+                  "border-b-2 border-b-green-500/40 dark:border-b-green-500/30",
+              )}
+            >
+              <TableCell className="font-medium">{entry.rank}</TableCell>
+              <TableCell className="font-medium">
+                {entry.participantName}
+              </TableCell>
+              <TableCell className="text-center">
+                {entry.matchesPlayed}
+              </TableCell>
+              <TableCell className="text-center text-green-600 dark:text-green-400">
+                {entry.wins}
+              </TableCell>
+              <TableCell className="text-center text-red-600 dark:text-red-400">
+                {entry.losses}
+              </TableCell>
+              <TableCell className="text-center">{entry.draws}</TableCell>
+              <TableCell className="text-center">
+                {entry.setsWon}:{entry.setsLost}
+              </TableCell>
+              <TableCell className="text-center">
+                {entry.setDifference > 0
+                  ? `+${entry.setDifference}`
+                  : entry.setDifference}
+              </TableCell>
+              <TableCell className="text-center text-base font-bold">
+                {entry.points}
+              </TableCell>
+              <TableCell className="text-center">
+                {entry.isQualified ? (
+                  <Badge className="bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-400">
+                    Qualifiziert
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-muted-foreground">
+                    Ausgeschieden
+                  </Badge>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }

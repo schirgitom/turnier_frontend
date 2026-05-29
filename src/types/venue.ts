@@ -1,3 +1,12 @@
+export interface VenueListItemDto {
+  id: string;
+  name: string;
+  address: string;
+  description: string;
+  isActive: boolean;
+  courtCount: number;
+}
+
 export interface VenueDto {
   id: string;
   name: string;
@@ -30,21 +39,3 @@ export interface CreateCourtRequest {
   sportId?: string;
 }
 
-export interface TournamentVenueConfig {
-  venueId: string;
-  availableFrom: string;
-  availableUntil: string;
-  matchDurationMinutes: number;
-  breakBetweenMatchesMinutes: number;
-  schedulingStrategy: string;
-  activeCourtIds: string[];
-}
-
-export interface UpdateTournamentVenueConfig {
-  availableFrom?: string;
-  availableUntil?: string;
-  matchDurationMinutes?: number;
-  breakBetweenMatchesMinutes?: number;
-  schedulingStrategy?: string;
-  activeCourtIds?: string[];
-}

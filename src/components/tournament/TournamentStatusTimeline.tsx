@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Check, FileEdit, Users, Settings, Play, Trophy, AlertTriangle } from "lucide-react";
+import { Check, Settings, Play, Trophy, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -10,40 +10,20 @@ import {
 } from "@/components/ui/tooltip";
 
 const STATUS_TO_IDX: Record<string, number> = {
-  Draft: 0,
-  RegistrationOpen: 1,
-  RegistrationClosed: 2,
-  InProgress: 3,
-  Completed: 4,
+  Preparation: 0,
+  InProgress: 1,
+  Completed: 2,
 };
 
 const STEPS = [
   {
-    label: "Entwurf",
-    icon: FileEdit,
-    description: [
-      { ok: true, text: "Turnier bearbeiten" },
-      { ok: true, text: "Teilnehmer hinzufügen" },
-      { ok: true, text: "Phasen konfigurieren" },
-      { ok: false, text: "Matches nicht generierbar" },
-    ],
-  },
-  {
-    label: "Anmeldung",
-    icon: Users,
-    description: [
-      { ok: true, text: "Teilnehmer anmelden" },
-      { ok: true, text: "Phasen anpassen" },
-      { ok: false, text: "Matches nicht generierbar" },
-    ],
-  },
-  {
-    label: "Vorbereitung",
+    label: "In Vorbereitung",
     icon: Settings,
     description: [
-      { ok: true, text: "Matches generieren" },
-      { ok: true, text: "Spielplan erstellen" },
-      { ok: false, text: "Details gesperrt" },
+      { ok: true, text: "Turnier bearbeiten" },
+      { ok: true, text: "Teilnehmer hinzufügen & entfernen" },
+      { ok: true, text: "Phasen konfigurieren & generieren" },
+      { ok: true, text: "Gruppenverteilung anpassen" },
     ],
   },
   {
@@ -51,17 +31,17 @@ const STEPS = [
     icon: Play,
     description: [
       { ok: true, text: "Ergebnisse eintragen" },
+      { ok: true, text: "Plätze ändern" },
       { ok: true, text: "Standings verfolgen" },
-      { ok: false, text: "Teilnehmer gesperrt" },
+      { ok: false, text: "Keine Teilnehmer- oder Phasenänderungen" },
     ],
   },
   {
     label: "Abgeschlossen",
     icon: Trophy,
     description: [
-      { ok: true, text: "Ergebnisse einsehen" },
-      { ok: true, text: "Auswertung ansehen" },
-      { ok: false, text: "Keine Änderungen mehr" },
+      { ok: true, text: "Ergebnisse & Auswertung einsehen" },
+      { ok: false, text: "Keine Änderungen möglich" },
     ],
   },
 ] as const;
@@ -215,7 +195,7 @@ export function TournamentStatusTimeline({
               const isActive = !cancelled && idx === activeIdx;
               const isPast = !cancelled && idx < activeIdx;
               const stepWarnings = warnings[idx];
-              const showMatchProgress = matchProgress && idx === 3 && isActive;
+              const showMatchProgress = matchProgress && idx === 1 && isActive;
               return (
                 <div key={step.label} className="flex-1 pr-2 last:pr-0">
                   <p
@@ -270,7 +250,7 @@ export function TournamentStatusTimeline({
             const isPast = !cancelled && idx < activeIdx;
             const stepWarnings = warnings[idx];
             const hasWarning = !!stepWarnings && stepWarnings.length > 0;
-            const showMatchProgress = matchProgress && idx === 3 && isActive;
+            const showMatchProgress = matchProgress && idx === 1 && isActive;
             const circleEl = <StepCircle step={step} state={state} hasWarning={hasWarning} />;
             return (
               <div key={step.label} className="flex gap-3">

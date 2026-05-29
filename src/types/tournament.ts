@@ -1,9 +1,7 @@
 export type ParticipantType = "Single" | "Double" | "Team";
 
 export enum TournamentStatus {
-  Draft = "Draft",
-  RegistrationOpen = "RegistrationOpen",
-  RegistrationClosed = "RegistrationClosed",
+  Preparation = "Preparation",
   InProgress = "InProgress",
   Completed = "Completed",
   Cancelled = "Cancelled",
@@ -28,6 +26,7 @@ export interface TournamentDto {
   participantType: ParticipantType;
   seeding: boolean;
   visibility: string;
+  matchSetsToWinOverride: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -47,6 +46,7 @@ export interface CreateTournamentRequest {
   advancingPerGroup?: number;
   seeding: boolean;
   visibility: string;
+  matchSetsToWinOverride?: number | null;
 }
 
 export interface UpdateTournamentRequest {
@@ -62,4 +62,5 @@ export interface UpdateTournamentRequest {
   formatType?: string;
   seeding?: boolean;
   visibility?: string;
+  matchSetsToWinOverride?: number | null;
 }

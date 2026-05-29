@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import type {
+  VenueListItemDto,
   VenueDto,
   CreateVenueRequest,
   UpdateVenueRequest,
@@ -11,8 +12,8 @@ import type { PaginatedResponse } from "@/types/participant";
 export async function getVenues(params?: {
   page?: number;
   pageSize?: number;
-}): Promise<PaginatedResponse<VenueDto>> {
-  const response = await apiClient.get<PaginatedResponse<VenueDto>>(
+}): Promise<PaginatedResponse<VenueListItemDto>> {
+  const response = await apiClient.get<PaginatedResponse<VenueListItemDto>>(
     "/venues",
     { params },
   );
