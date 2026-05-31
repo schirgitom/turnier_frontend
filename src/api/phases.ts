@@ -128,6 +128,16 @@ export async function getGroups(
   return response.data;
 }
 
+export async function resetPhase(
+  tournamentId: string,
+  phaseId: string,
+): Promise<PhaseResponse> {
+  const response = await apiClient.post<PhaseResponse>(
+    `${base(tournamentId)}/${phaseId}/reset`,
+  );
+  return response.data;
+}
+
 export async function getPhaseMatches(
   tournamentId: string,
   phaseId: string,

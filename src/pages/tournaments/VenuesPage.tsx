@@ -16,15 +16,15 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { getVenues, createVenue, deleteVenue } from "@/api/venues";
+import { getVenues, getVenue, createVenue, deleteVenue } from "@/api/venues";
 import {
   getPhaseVenues,
   addPhaseVenue,
   updatePhaseVenue,
   removePhaseVenue,
-  getVenueCourts,
 } from "@/api/phaseVenues";
 import { getPhases } from "@/api/phases";
+import { schedulePhase } from "@/api/scheduling";
 import { getApiErrorMessage } from "@/api/client";
 import { VenueCard } from "@/components/venues/VenueCard";
 import { Button } from "@/components/ui/button";
@@ -111,6 +111,7 @@ interface PhaseVenueDialogProps {
   phaseId: string;
   existing: PhaseVenueDto | null;
   venues: VenueListItemDto[];
+  onSaved?: () => void;
 }
 
 function PhaseVenueDialog({
@@ -120,6 +121,7 @@ function PhaseVenueDialog({
   phaseId,
   existing,
   venues,
+  onSaved,
 }: PhaseVenueDialogProps) {
   const queryClient = useQueryClient();
 
@@ -132,11 +134,16 @@ function PhaseVenueDialog({
   const watchedCourtIds = form.watch("activeCourtIds") ?? [];
   const watchedStrategy = form.watch("schedulingStrategy");
 
-  const { data: courts = [], isLoading: courtsLoading } = useQuery({
-    queryKey: ["venueCourts", watchedVenueId],
-    queryFn: () => getVenueCourts(watchedVenueId),
+  const { data: venueData, isLoading: courtsLoading } = useQuery({
+    queryKey: ["venue", watchedVenueId],
+    queryFn: () => getVenue(watchedVenueId),
     enabled: !!watchedVenueId,
   });
+
+  const courts = (venueData?.courts ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+  }));
 
   const allSelected =
     courts.length > 0 && courts.every((c) => watchedCourtIds.includes(c.id));
@@ -154,6 +161,7 @@ function PhaseVenueDialog({
         existing ? "Spielstätte aktualisiert" : "Spielstätte hinzugefügt",
       );
       onClose();
+      onSaved?.();
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
@@ -328,7 +336,7 @@ function PhaseVenueDialog({
                 </div>
               ) : courts.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Keine Plätze für diese Spielstätte vorhanden.
+                  Keine aktiven Plätze für diese Spielstätte.
                 </p>
               ) : (
                 <div className="space-y-1.5">
@@ -467,6 +475,25 @@ function PhaseVenueSection({
   const [dialogKey, setDialogKey] = useState(0);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<PhaseVenueDto | null>(null);
+  const [reschedulePromptOpen, setReschedulePromptOpen] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+
+  const handleReschedule = async () => {
+    setReschedulePromptOpen(false);
+    setRescheduling(true);
+    try {
+      await schedulePhase(tournamentId, phase.id);
+      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+      queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
+      toast.success("Spielplan neu generiert");
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+    } finally {
+      setRescheduling(false);
+    }
+  };
+
+  const promptReschedule = () => setReschedulePromptOpen(true);
 
   const { data, isLoading } = useQuery({
     queryKey: ["phaseVenues", tournamentId, phase.id],
@@ -514,7 +541,7 @@ function PhaseVenueSection({
           {!isLoading && phaseVenues.length === 0 && (
             <Badge
               variant="outline"
-              className="border-yellow-400 text-yellow-600 dark:border-yellow-500 dark:text-yellow-400"
+              className="border-[#F3A83B] text-[#F3A83B]"
             >
               <AlertTriangle className="mr-1 h-3 w-3" />
               Keine Spielstätte
@@ -562,7 +589,36 @@ function PhaseVenueSection({
         phaseId={phase.id}
         existing={editing}
         venues={venues}
+        onSaved={promptReschedule}
       />
+
+      <Dialog
+        open={reschedulePromptOpen}
+        onOpenChange={(open) => { if (!open) setReschedulePromptOpen(false); }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Spielplan neu generieren?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Spielstätte gespeichert. Spielplan jetzt neu generieren?
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setReschedulePromptOpen(false)}
+            >
+              Nein
+            </Button>
+            <Button onClick={handleReschedule} disabled={rescheduling}>
+              {rescheduling && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Ja, neu generieren
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

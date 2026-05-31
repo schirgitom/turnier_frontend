@@ -30,7 +30,6 @@ export interface MatchDto {
   awayParticipantName: string | null;
   score: MatchScore | null;
   scheduledAt: string | null;
-  // TODO: backend should include courtName in match response
   courtId: string | null;
   courtName: string | null;
   startedAt: string | null;

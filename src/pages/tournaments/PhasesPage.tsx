@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useParams } from "react-router";
-import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,6 +13,9 @@ import {
   GripVertical,
   Loader2,
   Plus,
+  CalendarClock,
+  RefreshCw,
+  RotateCcw,
   Trash2,
   Users,
   Swords,
@@ -41,9 +43,12 @@ import {
   removePhase,
   generatePhase,
   generateAllPhases,
+  resetPhase,
   reassignParticipant,
 } from "@/api/phases";
-import { getPhaseVenues } from "@/api/phaseVenues";
+import { getPhaseVenues, updatePhaseVenue } from "@/api/phaseVenues";
+import { schedulePhase } from "@/api/scheduling";
+import type { AddPhaseVenueRequest } from "@/types/phaseVenue";
 import { getRegistrations } from "@/api/registrations";
 import { isGroupPhase } from "@/types/phase";
 import type {
@@ -120,6 +125,9 @@ const statusLabels: Record<string, string> = {
   InProgress: "Laufend",
   Completed: "Abgeschlossen",
 };
+
+const NATIVE_SELECT_CLASS =
+  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 function cleanName(name: string): string {
   const parts = name.split(" ");
@@ -215,9 +223,9 @@ function DroppableGroupCard({
       className={cn(
         "rounded-lg border p-3 space-y-2 transition-colors",
         isOver && !isSameGroup &&
-          "border-blue-400 bg-blue-50/50 dark:bg-blue-950/20",
+          "border-victora-secondary bg-victora-secondary/10",
         isOver && isSameGroup &&
-          "border-red-400 bg-red-50/50 dark:bg-red-950/20",
+          "border-victora-error bg-victora-error/10",
       )}
     >
       {children}
@@ -232,6 +240,10 @@ function GroupPhaseCard({
   deleting,
   onGenerate,
   generating,
+  onReset,
+  resetting,
+  onSchedule,
+  scheduling,
 }: {
   phase: GroupPhaseResponse;
   tournamentId: string;
@@ -239,10 +251,16 @@ function GroupPhaseCard({
   deleting: boolean;
   onGenerate: () => void;
   generating: boolean;
+  onReset: () => void;
+  resetting: boolean;
+  onSchedule: () => void;
+  scheduling: boolean;
 }) {
   const queryClient = useQueryClient();
   const canGenerate =
     phase.status !== "Generated" && phase.status !== "Completed";
+  const canReset = phase.status !== "Pending";
+  const canSchedule = phase.status === "InProgress" || phase.status === "Generated";
   const hasGroups = (phase.groups?.length ?? 0) > 0;
 
   const [expanded, setExpanded] = useState(hasGroups);
@@ -266,11 +284,88 @@ function GroupPhaseCard({
     enabled: expanded && hasGroups,
   });
 
-  const { data: phaseVenues } = useQuery({
+  const { data: phaseVenuesData } = useQuery({
     queryKey: ["phaseVenues", tournamentId, phase.id],
     queryFn: () => getPhaseVenues(tournamentId, phase.id),
   });
-  const venueCount = phaseVenues?.venues.length ?? 0;
+  const venuesList = phaseVenuesData?.venues ?? [];
+  const venueCount = venuesList.length;
+
+  const sortedVenues = [...venuesList].sort(
+    (a, b) => new Date(a.availableFrom).getTime() - new Date(b.availableFrom).getTime(),
+  );
+  const firstVenue = sortedVenues[0] ?? null;
+  const showRotation = venueCount >= 2;
+  const existingRotation = firstVenue?.venueRotation;
+
+  const [rotationEnabled, setRotationEnabled] = useState(
+    existingRotation?.enabled ?? false,
+  );
+  const [rotateAfterRounds, setRotateAfterRounds] = useState(
+    existingRotation?.rotateAfterRounds ?? 3,
+  );
+  const [groupVenueAssignments, setGroupVenueAssignments] = useState<
+    Record<number, number>
+  >(() => {
+    const map: Record<number, number> = {};
+    if (existingRotation?.groupAssignments) {
+      for (const ga of existingRotation.groupAssignments) {
+        map[ga.groupIndex] = ga.startVenueIndex;
+      }
+    }
+    return map;
+  });
+  const [rotationDefaultsApplied, setRotationDefaultsApplied] = useState(
+    !!existingRotation,
+  );
+
+  const groups = phase.groups ?? [];
+  if (
+    !rotationDefaultsApplied &&
+    groups.length > 0 &&
+    Object.keys(groupVenueAssignments).length === 0
+  ) {
+    const half = Math.ceil(groups.length / 2);
+    const defaults: Record<number, number> = {};
+    groups.forEach((_, i) => { defaults[i] = i < half ? 0 : 1; });
+    setGroupVenueAssignments(defaults);
+    setRotationDefaultsApplied(true);
+  }
+
+  const rotationMutation = useMutation({
+    mutationFn: (data: AddPhaseVenueRequest) =>
+      updatePhaseVenue(tournamentId, phase.id, firstVenue!.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["phaseVenues", tournamentId, phase.id],
+      });
+      toast.success("Rotation gespeichert");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const handleSaveRotation = () => {
+    if (!firstVenue) return;
+    const venueRotation = rotationEnabled
+      ? {
+          enabled: true,
+          rotateAfterRounds,
+          groupAssignments: groups.map((_, index) => ({
+            groupIndex: index,
+            startVenueIndex: groupVenueAssignments[index] ?? 0,
+          })),
+        }
+      : null;
+    rotationMutation.mutate({
+      venueId: firstVenue.venueId,
+      availableFrom: firstVenue.availableFrom,
+      matchDurationMinutes: firstVenue.matchDurationMinutes,
+      breakBetweenMatchesMinutes: firstVenue.breakBetweenMatchesMinutes,
+      schedulingStrategy: firstVenue.schedulingStrategy,
+      activeCourtIds: firstVenue.activeCourts.map((c) => c.id),
+      venueRotation,
+    });
+  };
 
   const assignedIds = new Set(
     (phase.groups ?? []).flatMap((g) =>
@@ -338,7 +433,7 @@ function GroupPhaseCard({
               <Badge variant="outline">
                 {statusLabels[phase.status] ?? phase.status}
               </Badge>
-              {phaseVenues && (
+              {phaseVenuesData && (
                 venueCount > 0 ? (
                   <Badge variant="secondary">
                     {venueCount} Spielstätte{venueCount !== 1 ? "n" : ""}
@@ -346,12 +441,18 @@ function GroupPhaseCard({
                 ) : (
                   <Badge
                     variant="outline"
-                    className="border-yellow-400 text-yellow-600 dark:border-yellow-500 dark:text-yellow-400"
+                    className="border-[#F3A83B] text-[#F3A83B]"
                   >
                     <AlertTriangle className="mr-1 h-3 w-3" />
                     Keine Spielstätte
                   </Badge>
                 )
+              )}
+              {existingRotation?.enabled && (
+                <Badge className="bg-victora-secondary/15 text-victora-secondary border-transparent gap-1">
+                  <RefreshCw className="h-3 w-3" />
+                  Rotation alle {existingRotation.rotateAfterRounds} Runden
+                </Badge>
               )}
             </div>
           </div>
@@ -369,6 +470,36 @@ function GroupPhaseCard({
               )}
               Generieren
             </Button>
+            {canSchedule && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onSchedule}
+                disabled={scheduling}
+              >
+                {scheduling ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Spielplan neu generieren
+              </Button>
+            )}
+            {canReset && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onReset}
+                disabled={resetting}
+              >
+                {resetting ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Zurücksetzen
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -512,6 +643,93 @@ function GroupPhaseCard({
                 </ul>
               </div>
             )}
+
+            {showRotation && (
+              <div className="rounded-lg border p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">Venue Rotation</span>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-input accent-primary"
+                      checked={rotationEnabled}
+                      onChange={(e) => setRotationEnabled(e.target.checked)}
+                    />
+                    {rotationEnabled ? "Ein" : "Aus"}
+                  </label>
+                </div>
+
+                {rotationEnabled && (
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`rot-rounds-${phase.id}`}>
+                        Rotieren nach X Runden
+                      </Label>
+                      <Input
+                        id={`rot-rounds-${phase.id}`}
+                        type="number"
+                        min={1}
+                        className="w-32"
+                        value={rotateAfterRounds}
+                        onChange={(e) =>
+                          setRotateAfterRounds(
+                            Math.max(1, parseInt(e.target.value) || 1),
+                          )
+                        }
+                      />
+                    </div>
+
+                    {groups.length > 0 && (
+                      <div className="space-y-1.5">
+                        <Label>Gruppen-Startzuweisung</Label>
+                        <div className="space-y-1.5">
+                          {groups.map((group, idx) => (
+                            <div
+                              key={group.id}
+                              className="flex items-center gap-2 text-sm"
+                            >
+                              <span className="w-24 shrink-0 truncate font-medium">
+                                {germanGroupName(group.name)}
+                              </span>
+                              <span className="text-muted-foreground">→</span>
+                              <select
+                                className={cn(NATIVE_SELECT_CLASS, "w-auto flex-1")}
+                                value={groupVenueAssignments[idx] ?? 0}
+                                onChange={(e) =>
+                                  setGroupVenueAssignments((prev) => ({
+                                    ...prev,
+                                    [idx]: parseInt(e.target.value),
+                                  }))
+                                }
+                              >
+                                {sortedVenues.map((v, vIdx) => (
+                                  <option key={v.id} value={vIdx}>
+                                    {v.venueName}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end">
+                  <Button
+                    size="sm"
+                    onClick={handleSaveRotation}
+                    disabled={rotationMutation.isPending}
+                  >
+                    {rotationMutation.isPending && (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    )}
+                    Speichern
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         )}
       </Card>
@@ -604,6 +822,10 @@ function EliminationPhaseCard({
   deleting,
   onGenerate,
   generating,
+  onReset,
+  resetting,
+  onSchedule,
+  scheduling,
 }: {
   phase: EliminationPhaseResponse;
   tournamentId: string;
@@ -611,9 +833,15 @@ function EliminationPhaseCard({
   deleting: boolean;
   onGenerate: () => void;
   generating: boolean;
+  onReset: () => void;
+  resetting: boolean;
+  onSchedule: () => void;
+  scheduling: boolean;
 }) {
   const canGenerate =
     phase.status !== "Generated" && phase.status !== "Completed";
+  const canReset = phase.status !== "Pending";
+  const canSchedule = phase.status === "InProgress" || phase.status === "Generated";
   const [expanded, setExpanded] = useState(false);
 
   const { data: phaseVenues } = useQuery({
@@ -640,7 +868,7 @@ function EliminationPhaseCard({
               ) : (
                 <Badge
                   variant="outline"
-                  className="border-yellow-400 text-yellow-600 dark:border-yellow-500 dark:text-yellow-400"
+                  className="border-[#F3A83B] text-[#F3A83B]"
                 >
                   <AlertTriangle className="mr-1 h-3 w-3" />
                   Keine Spielstätte
@@ -663,6 +891,36 @@ function EliminationPhaseCard({
             )}
             Generieren
           </Button>
+          {canSchedule && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onSchedule}
+              disabled={scheduling}
+            >
+              {scheduling ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Spielplan neu generieren
+            </Button>
+          )}
+          {canReset && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onReset}
+              disabled={resetting}
+            >
+              {resetting ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Zurücksetzen
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -713,13 +971,17 @@ function showSchedulingToasts(result: GenerateMatchesResponse) {
   if (result.autoScheduled) {
     let msg = `Phase generiert. ${result.scheduledMatchCount} Spiele automatisch eingeplant.`;
     if (result.estimatedEndTime) {
-      msg += ` Geschätztes Ende: ${format(new Date(result.estimatedEndTime), "HH:mm")} Uhr`;
+      const time = new Date(result.estimatedEndTime).toLocaleTimeString("de-AT", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      msg += ` Geschätztes Ende: ${time}`;
     }
     toast.success(msg);
   } else {
     toast.success("Phase generiert. Keine Spielstätte konfiguriert – Spiele ohne Zeitplan.");
   }
-  for (const warning of result.schedulingWarnings) {
+  for (const warning of result.schedulingWarnings ?? []) {
     toast.warning(warning);
   }
   if (result.unscheduledMatchCount > 0) {
@@ -824,6 +1086,46 @@ export function PhasesPage() {
     }
   };
 
+  const [resetTarget, setResetTarget] = useState<PhaseResponse | null>(null);
+  const [resettingPhaseId, setResettingPhaseId] = useState<string | null>(null);
+
+  const handleResetConfirm = async () => {
+    if (!resetTarget) return;
+    const phaseId = resetTarget.id;
+    setResettingPhaseId(phaseId);
+    setResetTarget(null);
+    try {
+      await resetPhase(tournamentId!, phaseId);
+      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+      queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
+      toast.success("Phase wurde zurückgesetzt");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    } finally {
+      setResettingPhaseId(null);
+    }
+  };
+
+  const [scheduleTarget, setScheduleTarget] = useState<PhaseResponse | null>(null);
+  const [schedulingPhaseId, setSchedulingPhaseId] = useState<string | null>(null);
+
+  const handleScheduleConfirm = async () => {
+    if (!scheduleTarget) return;
+    const phaseId = scheduleTarget.id;
+    setSchedulingPhaseId(phaseId);
+    setScheduleTarget(null);
+    try {
+      await schedulePhase(tournamentId!, phaseId);
+      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+      queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
+      toast.success("Spielplan wurde neu generiert");
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    } finally {
+      setSchedulingPhaseId(null);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -846,7 +1148,7 @@ export function PhasesPage() {
           {data && phases.length > 0 && data.isConfigurationValid && (
             <Badge
               variant="outline"
-              className="border-green-500 text-green-600"
+              className="border-[#3FA97B] text-[#3FA97B]"
             >
               <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
               Konfiguration gültig
@@ -900,14 +1202,14 @@ export function PhasesPage() {
 
 
       {configInvalid && (
-        <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-4 dark:border-yellow-500/30 dark:bg-yellow-500/10">
+        <div className="rounded-lg border border-[#F3A83B]/30 bg-[rgba(243,168,59,0.08)] p-4">
           <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-500" />
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#F3A83B]" />
             <div className="space-y-1">
-              <p className="text-sm font-medium text-yellow-800 dark:text-yellow-400">
+              <p className="text-sm font-medium text-[#c47e00]">
                 Konfiguration ungültig:
               </p>
-              <ul className="list-inside list-disc text-sm text-yellow-700 dark:text-yellow-400/80">
+              <ul className="list-inside list-disc text-sm text-[#c47e00]/80">
                 {data.validationErrors.map((err) => (
                   <li key={err}>{err}</li>
                 ))}
@@ -935,6 +1237,10 @@ export function PhasesPage() {
                   deleting={deleteMutation.isPending}
                   onGenerate={() => handleGeneratePhase(phase.id)}
                   generating={generatingPhaseId === phase.id}
+                  onReset={() => setResetTarget(phase)}
+                  resetting={resettingPhaseId === phase.id}
+                  onSchedule={() => setScheduleTarget(phase)}
+                  scheduling={schedulingPhaseId === phase.id}
                 />
               ) : (
                 <EliminationPhaseCard
@@ -945,11 +1251,65 @@ export function PhasesPage() {
                   deleting={deleteMutation.isPending}
                   onGenerate={() => handleGeneratePhase(phase.id)}
                   generating={generatingPhaseId === phase.id}
+                  onReset={() => setResetTarget(phase)}
+                  resetting={resettingPhaseId === phase.id}
+                  onSchedule={() => setScheduleTarget(phase)}
+                  scheduling={schedulingPhaseId === phase.id}
                 />
               ),
             )}
         </div>
       )}
+
+      {/* Reset confirmation dialog */}
+      <Dialog
+        open={resetTarget !== null}
+        onOpenChange={(open) => { if (!open) setResetTarget(null); }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Phase zurücksetzen?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Alle generierten Spiele und Gruppenzuordnungen werden gelöscht.
+            Die Phasenkonfiguration (Anzahl Gruppen, Aufsteiger etc.) bleibt
+            erhalten.
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setResetTarget(null)}>
+              Abbrechen
+            </Button>
+            <Button variant="destructive" onClick={handleResetConfirm}>
+              Zurücksetzen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Schedule confirmation dialog */}
+      <Dialog
+        open={scheduleTarget !== null}
+        onOpenChange={(open) => { if (!open) setScheduleTarget(null); }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Spielplan neu generieren?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Courts und Zeiten werden neu berechnet. Bestehende Ergebnisse
+            bleiben erhalten. Bitte stelle sicher dass die
+            Spielstätten-Konfiguration aktuell ist.
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setScheduleTarget(null)}>
+              Abbrechen
+            </Button>
+            <Button onClick={handleScheduleConfirm}>
+              Neu generieren
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Group phase dialog */}
       <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>

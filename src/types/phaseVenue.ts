@@ -4,6 +4,17 @@ export interface ActiveCourt {
   isActive: boolean;
 }
 
+export interface GroupAssignment {
+  groupIndex: number;
+  startVenueIndex: number;
+}
+
+export interface VenueRotationConfig {
+  enabled: boolean;
+  rotateAfterRounds: number;
+  groupAssignments: GroupAssignment[];
+}
+
 export interface PhaseVenueDto {
   id: string;
   phaseId: string;
@@ -16,6 +27,7 @@ export interface PhaseVenueDto {
   activeCourts: ActiveCourt[];
   slotDurationMinutes: number;
   totalActiveCourts: number;
+  venueRotation?: VenueRotationConfig | null;
 }
 
 export interface PhaseVenueListResponse {
@@ -32,4 +44,5 @@ export interface AddPhaseVenueRequest {
   breakBetweenMatchesMinutes: number;
   schedulingStrategy: "EarliestFirst" | "Distributed";
   activeCourtIds: string[];
+  venueRotation?: VenueRotationConfig | null;
 }

@@ -21,11 +21,11 @@ const criteria = [
 ] as const;
 
 const strengthConfig = [
-  { label: "Schwach", color: "bg-red-500", width: "w-1/4" },
-  { label: "Schwach", color: "bg-red-500", width: "w-1/4" },
-  { label: "Schwach", color: "bg-orange-500", width: "w-2/4" },
-  { label: "Mittel", color: "bg-yellow-500", width: "w-3/4" },
-  { label: "Stark", color: "bg-green-500", width: "w-full" },
+  { label: "Schwach", color: "bg-victora-error", width: "w-1/4" },
+  { label: "Schwach", color: "bg-victora-error", width: "w-1/4" },
+  { label: "Schwach", color: "bg-victora-coral", width: "w-2/4" },
+  { label: "Mittel", color: "bg-victora-warning", width: "w-3/4" },
+  { label: "Stark", color: "bg-victora-success", width: "w-full" },
 ] as const;
 
 export function PasswordStrengthChecker({ password }: { password: string }) {
@@ -49,10 +49,10 @@ export function PasswordStrengthChecker({ password }: { password: string }) {
           className={cn(
             "text-xs font-medium",
             met <= 2
-              ? "text-red-500"
+              ? "text-victora-error"
               : met === 3
-                ? "text-yellow-600"
-                : "text-green-600",
+                ? "text-victora-warning"
+                : "text-victora-success",
           )}
         >
           {config.label}
@@ -65,13 +65,13 @@ export function PasswordStrengthChecker({ password }: { password: string }) {
           return (
             <li key={c.label} className="flex items-center gap-2 text-sm">
               {pass ? (
-                <CircleCheck className="h-4 w-4 shrink-0 text-green-600" />
+                <CircleCheck className="h-4 w-4 shrink-0 text-victora-success" />
               ) : (
                 <CircleX className="h-4 w-4 shrink-0 text-muted-foreground" />
               )}
               <span
                 className={cn(
-                  pass ? "text-green-600" : "text-muted-foreground",
+                  pass ? "text-victora-success" : "text-muted-foreground",
                 )}
               >
                 {c.label}

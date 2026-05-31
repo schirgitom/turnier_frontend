@@ -172,14 +172,14 @@ function ScheduleBoard({ data }: { data: ScheduleBoardDto }) {
                     className={cn(
                       "border border-border p-3 text-center",
                       match?.status === MatchStatus.InProgress &&
-                        "bg-green-500/10",
+                        "bg-victora-success/10",
                     )}
                   >
                     {match ? (
                       <div>
                         <div className="flex items-center justify-center gap-2 text-xl">
                           {match.status === MatchStatus.InProgress && (
-                            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-green-500" />
+                            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-victora-success" />
                           )}
                           <span>{match.homeParticipantName ?? "TBD"}</span>
                           <span className="text-3xl font-bold">
@@ -317,7 +317,7 @@ function MatchesView({ tournamentId }: { tournamentId: string }) {
       {liveMatches.length > 0 && (
         <section>
           <h2 className="mb-4 flex items-center gap-3 text-2xl font-bold">
-            <span className="h-3 w-3 animate-pulse rounded-full bg-green-500" />
+            <span className="h-3 w-3 animate-pulse rounded-full bg-victora-success" />
             Laufende Spiele
           </h2>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -363,10 +363,10 @@ function MatchesView({ tournamentId }: { tournamentId: string }) {
 
 function LiveMatchCard({ match }: { match: MatchDto }) {
   return (
-    <div className="rounded-lg border-2 border-green-500/50 bg-green-500/5 p-6">
+    <div className="rounded-lg border-2 border-victora-success/50 bg-victora-success/5 p-6">
       <div className="mb-2 flex items-center gap-2">
-        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-green-500" />
-        <span className="text-sm font-medium text-green-400">LIVE</span>
+        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-victora-success" />
+        <span className="text-sm font-medium text-victora-success">LIVE</span>
         {match.courtName && (
           <span className="ml-auto text-xl text-muted-foreground">
             {match.courtName}

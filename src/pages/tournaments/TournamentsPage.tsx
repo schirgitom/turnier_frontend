@@ -24,14 +24,11 @@ const STATUS_LABELS: Record<TournamentStatus, string> = {
   [TournamentStatus.Cancelled]: "Abgesagt",
 };
 
-const STATUS_VARIANTS: Record<
-  TournamentStatus,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  [TournamentStatus.Preparation]: "secondary",
-  [TournamentStatus.InProgress]: "default",
-  [TournamentStatus.Completed]: "secondary",
-  [TournamentStatus.Cancelled]: "destructive",
+const STATUS_CLASSES: Record<TournamentStatus, string> = {
+  [TournamentStatus.Preparation]: "bg-[rgba(87,25,75,0.1)] text-[#57194B] border-transparent",
+  [TournamentStatus.InProgress]: "bg-[#AF5574] text-white border-transparent",
+  [TournamentStatus.Completed]: "bg-[#3FA97B] text-white border-transparent",
+  [TournamentStatus.Cancelled]: "bg-[#D94E5F] text-white border-transparent",
 };
 
 export function TournamentsPage() {
@@ -98,13 +95,13 @@ export function TournamentsPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {tournaments.map((tournament) => (
               <Link key={tournament.id} to={`/t/${tournament.id}`}>
-                <Card className="transition-shadow hover:shadow-md">
+                <Card className="border-l-[3px] border-l-[#57194B] transition-shadow hover:bg-[rgba(87,25,75,0.03)] hover:shadow-md">
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
                       <CardTitle className="text-lg">
                         {tournament.name}
                       </CardTitle>
-                      <Badge variant={STATUS_VARIANTS[tournament.status]}>
+                      <Badge className={STATUS_CLASSES[tournament.status]}>
                         {STATUS_LABELS[tournament.status]}
                       </Badge>
                     </div>

@@ -74,7 +74,7 @@ export interface GenerateMatchesResponse {
   scheduledMatchCount: number;
   unscheduledMatchCount: number;
   estimatedEndTime: string | null;
-  schedulingWarnings: string[];
+  schedulingWarnings: string[] | null;
 }
 
 export interface ReorderPhasesRequest {

@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { getMatches, startMatch, submitResult } from "@/api/matches";
 import { getPhases, getPhaseMatches } from "@/api/phases";
+import { getPhaseVenues } from "@/api/phaseVenues";
 import { getApiErrorMessage } from "@/api/client";
 import type { TournamentDto } from "@/types/tournament";
 import { TournamentStatus } from "@/types/tournament";
@@ -43,14 +44,11 @@ const statusLabels: Record<MatchStatus, string> = {
   [MatchStatus.Cancelled]: "Abgesagt",
 };
 
-const statusVariant: Record<
-  MatchStatus,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  [MatchStatus.Scheduled]: "secondary",
-  [MatchStatus.InProgress]: "default",
-  [MatchStatus.Completed]: "outline",
-  [MatchStatus.Cancelled]: "destructive",
+const statusClasses: Record<MatchStatus, string> = {
+  [MatchStatus.Scheduled]: "bg-[rgba(87,25,75,0.08)] text-[#57194B] border-transparent",
+  [MatchStatus.InProgress]: "bg-[#AF5574] text-white border-transparent",
+  [MatchStatus.Completed]: "bg-[#3FA97B] text-white border-transparent",
+  [MatchStatus.Cancelled]: "bg-[#D94E5F] text-white border-transparent",
 };
 
 function elimRoundShort(roundName: string, matchCount: number): string {
@@ -202,6 +200,24 @@ export function MatchesPage() {
     const meta = matchMeta.get(m.id);
     if (meta) {
       matchCountByPhase.set(meta.phaseId, (matchCountByPhase.get(meta.phaseId) ?? 0) + 1);
+    }
+  });
+
+  const phaseVenueQueries = useQueries({
+    queries: phases.map((phase) => ({
+      queryKey: ["phaseVenues", tournamentId, phase.id],
+      queryFn: () => getPhaseVenues(tournamentId!, phase.id),
+      enabled: !!tournamentId,
+    })),
+  });
+
+  const courtToVenue = new Map<string, string>();
+  phaseVenueQueries.forEach((q) => {
+    if (!q.data) return;
+    for (const venue of q.data.venues) {
+      for (const court of venue.activeCourts) {
+        courtToVenue.set(court.id, venue.venueName);
+      }
     }
   });
 
@@ -443,7 +459,7 @@ export function MatchesPage() {
                   className={cn(
                     "rounded-full px-1.5 py-0.5 text-xs font-medium",
                     tab.id === "inprogress"
-                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      ? "bg-[rgba(63,169,123,0.15)] text-[#3FA97B]"
                       : "bg-muted text-muted-foreground",
                   )}
                 >
@@ -488,7 +504,7 @@ export function MatchesPage() {
                 <Fragment key={match.id}>
                   <TableRow
                     className={cn(
-                      isLive && "bg-green-50/50 dark:bg-green-950/10",
+                      isLive && "bg-[rgba(63,169,123,0.05)]",
                       isCompleted && "cursor-pointer select-none",
                     )}
                     onClick={isCompleted ? () => toggleExpand(match.id) : undefined}
@@ -512,7 +528,7 @@ export function MatchesPage() {
                         )}>
                           {match.homeParticipantName ?? "TBD"}
                         </span>
-                        {homeWon && <Check className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />}
+                        {homeWon && <Check className="h-3.5 w-3.5 shrink-0 text-victora-success" />}
                       </div>
                     </TableCell>
 
@@ -523,7 +539,7 @@ export function MatchesPage() {
                           <span className={cn(
                             "px-2.5 py-1 font-bold",
                             homeWon
-                              ? "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                              ? "bg-[rgba(63,169,123,0.1)] text-victora-success"
                               : "text-muted-foreground",
                           )}>
                             {match.score.homePoints}
@@ -534,7 +550,7 @@ export function MatchesPage() {
                           <span className={cn(
                             "px-2.5 py-1 font-bold",
                             awayWon
-                              ? "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                              ? "bg-[rgba(63,169,123,0.1)] text-victora-success"
                               : "text-muted-foreground",
                           )}>
                             {match.score.awayPoints}
@@ -553,7 +569,7 @@ export function MatchesPage() {
                         )}>
                           {match.awayParticipantName ?? "TBD"}
                         </span>
-                        {awayWon && <Check className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />}
+                        {awayWon && <Check className="h-3.5 w-3.5 shrink-0 text-victora-success" />}
                       </div>
                     </TableCell>
 
@@ -563,14 +579,17 @@ export function MatchesPage() {
                         : "–"}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {/* TODO: backend should include courtName in match response */}
-                      {match.courtName ?? (match.courtId ? match.courtId.slice(0, 8) : "–")}
+                      {(() => {
+                        const vName = match.courtId ? courtToVenue.get(match.courtId) : null;
+                        if (vName && match.courtName) return `${vName} – ${match.courtName}`;
+                        return match.courtName ?? (match.courtId ? match.courtId.substring(0, 8) + "…" : "–");
+                      })()}
                     </TableCell>
 
                     <TableCell>
-                      <Badge variant={statusVariant[match.status]} className="gap-1.5">
+                      <Badge className={cn("gap-1.5", statusClasses[match.status])}>
                         {isLive && (
-                          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-green-500" />
+                          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-white" />
                         )}
                         {statusLabels[match.status]}
                       </Badge>
@@ -615,14 +634,14 @@ export function MatchesPage() {
                                   </span>
                                   <span className={cn(
                                     "w-6 text-right font-medium",
-                                    set.homeScore > set.awayScore && "text-green-700 dark:text-green-400",
+                                    set.homeScore > set.awayScore && "text-victora-success",
                                   )}>
                                     {set.homeScore}
                                   </span>
                                   <span className="text-muted-foreground">:</span>
                                   <span className={cn(
                                     "w-6 font-medium",
-                                    set.awayScore > set.homeScore && "text-green-700 dark:text-green-400",
+                                    set.awayScore > set.homeScore && "text-victora-success",
                                   )}>
                                     {set.awayScore}
                                   </span>

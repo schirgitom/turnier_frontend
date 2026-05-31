@@ -31,14 +31,11 @@ const MATCH_STATUS_LABELS: Record<string, string> = {
   Cancelled: "Abgesagt",
 };
 
-const MATCH_STATUS_VARIANT: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  Scheduled: "secondary",
-  InProgress: "default",
-  Completed: "outline",
-  Cancelled: "destructive",
+const MATCH_STATUS_CLASSES: Record<string, string> = {
+  Scheduled: "bg-[rgba(87,25,75,0.08)] text-[#57194B] border-transparent",
+  InProgress: "bg-[#AF5574] text-white border-transparent",
+  Completed: "bg-[#3FA97B] text-white border-transparent",
+  Cancelled: "bg-[#D94E5F] text-white border-transparent",
 };
 
 function toGerman(name: string) {
@@ -205,7 +202,7 @@ function GroupMatchesPlan({
                             className={cn(
                               "px-2 py-0.5 font-bold",
                               homeWon
-                                ? "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                                ? "bg-[rgba(63,169,123,0.1)] text-victora-success"
                                 : "text-muted-foreground",
                             )}
                           >
@@ -218,7 +215,7 @@ function GroupMatchesPlan({
                             className={cn(
                               "px-2 py-0.5 font-bold",
                               awayWon
-                                ? "bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                                ? "bg-[rgba(63,169,123,0.1)] text-victora-success"
                                 : "text-muted-foreground",
                             )}
                           >
@@ -242,8 +239,8 @@ function GroupMatchesPlan({
                     </TableCell>
                     <TableCell>
                       <Badge
-                        variant={
-                          MATCH_STATUS_VARIANT[match.status] ?? "secondary"
+                        className={
+                          MATCH_STATUS_CLASSES[match.status] ?? "bg-[rgba(87,25,75,0.08)] text-[#57194B] border-transparent"
                         }
                       >
                         {MATCH_STATUS_LABELS[match.status] ?? match.status}
@@ -369,10 +366,10 @@ function GroupTable({ group }: { group: GroupStandings }) {
             <TableHead className="w-10">#</TableHead>
             <TableHead>Teilnehmer</TableHead>
             <TableHead className="text-center">Sp</TableHead>
-            <TableHead className="text-center text-green-600 dark:text-green-400">
+            <TableHead className="text-center text-victora-success">
               S
             </TableHead>
-            <TableHead className="text-center text-red-600 dark:text-red-400">
+            <TableHead className="text-center text-victora-error">
               N
             </TableHead>
             <TableHead className="text-center">U</TableHead>
@@ -387,9 +384,9 @@ function GroupTable({ group }: { group: GroupStandings }) {
             <TableRow
               key={entry.participantId}
               className={cn(
-                entry.isQualified && "bg-green-50/60 dark:bg-green-950/20",
+                entry.isQualified && "bg-[rgba(63,169,123,0.08)]",
                 idx === lastQualifiedIdx &&
-                  "border-b-2 border-b-green-500/40 dark:border-b-green-500/30",
+                  "border-b-2 border-b-[#3FA97B]/40",
               )}
             >
               <TableCell className="font-medium">{entry.rank}</TableCell>
@@ -399,10 +396,10 @@ function GroupTable({ group }: { group: GroupStandings }) {
               <TableCell className="text-center">
                 {entry.matchesPlayed}
               </TableCell>
-              <TableCell className="text-center text-green-600 dark:text-green-400">
+              <TableCell className="text-center text-victora-success">
                 {entry.wins}
               </TableCell>
-              <TableCell className="text-center text-red-600 dark:text-red-400">
+              <TableCell className="text-center text-victora-error">
                 {entry.losses}
               </TableCell>
               <TableCell className="text-center">{entry.draws}</TableCell>
@@ -419,7 +416,7 @@ function GroupTable({ group }: { group: GroupStandings }) {
               </TableCell>
               <TableCell className="text-center">
                 {entry.isQualified ? (
-                  <Badge className="bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-400">
+                  <Badge className="bg-[rgba(63,169,123,0.15)] text-[#3FA97B] hover:bg-[rgba(63,169,123,0.15)]">
                     Qualifiziert
                   </Badge>
                 ) : (

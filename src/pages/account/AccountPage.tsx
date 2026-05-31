@@ -31,10 +31,10 @@ function getPasswordStrength(pw: string): number {
 
 const strengthConfig = [
   null,
-  { label: "Schwach", color: "bg-red-500", width: "w-1/4" },
-  { label: "Schwach", color: "bg-red-500", width: "w-2/4" },
-  { label: "Mittel", color: "bg-orange-500", width: "w-3/4" },
-  { label: "Stark", color: "bg-green-500", width: "w-full" },
+  { label: "Schwach", color: "bg-victora-error", width: "w-1/4" },
+  { label: "Schwach", color: "bg-victora-error", width: "w-2/4" },
+  { label: "Mittel", color: "bg-victora-warning", width: "w-3/4" },
+  { label: "Stark", color: "bg-victora-success", width: "w-full" },
 ] as const;
 
 const profileSchema = z.object({
@@ -226,10 +226,10 @@ function PasswordSection({
                   className={cn(
                     "text-xs",
                     strength <= 2
-                      ? "text-red-500"
+                      ? "text-victora-error"
                       : strength === 3
-                        ? "text-orange-500"
-                        : "text-green-500",
+                        ? "text-victora-warning"
+                        : "text-victora-success",
                   )}
                 >
                   {strengthInfo.label}

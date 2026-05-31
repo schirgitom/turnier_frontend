@@ -1,7 +1,6 @@
 import { Outlet, NavLink, useNavigate, Navigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Trophy,
   LogOut,
   User,
   ChevronDown,
@@ -28,7 +27,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 export function AppLayout() {
@@ -56,23 +54,18 @@ export function AppLayout() {
 
   return (
     <div className="flex h-screen">
-      <aside className="flex w-64 flex-col border-r bg-sidebar-background">
-        <div className="flex h-14 items-center gap-2 border-b px-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <Trophy className="h-4 w-4 text-primary-foreground" />
-          </div>
-          <div className="flex flex-col">
-            <span className="font-semibold">Turnierplaner</span>
-            {activeOrg && (
-              <span className="text-xs text-muted-foreground">
-                {activeOrg.organizationName}
-              </span>
-            )}
-          </div>
+      <aside className="flex w-64 flex-col border-r border-sidebar-border bg-sidebar-background text-sidebar-foreground">
+        <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
+          <img src="/logo.png" alt="Victora" style={{ height: 32, width: "auto" }} />
+          {activeOrg && (
+            <span className="ml-auto text-xs text-[rgba(255,255,255,0.4)]">
+              {activeOrg.organizationName}
+            </span>
+          )}
         </div>
 
         {memberships && memberships.length > 1 && (
-          <div className="border-b p-3">
+          <div className="border-b border-sidebar-border p-3">
             <Select
               value={activeOrg?.organizationId ?? ""}
               onValueChange={(value) => {
@@ -105,10 +98,10 @@ export function AppLayout() {
             end
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent",
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground",
+                  ? "bg-[#AF5574] text-white"
+                  : "text-[rgba(255,255,255,0.65)] hover:bg-[rgba(175,85,116,0.3)]",
               )
             }
           >
@@ -117,21 +110,21 @@ export function AppLayout() {
           </NavLink>
         </nav>
 
-        <Separator />
+        <div className="border-t border-[rgba(255,255,255,0.1)]" />
 
         <div className="p-3">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                className="w-full justify-start gap-2 px-2"
+                className="w-full justify-start gap-2 px-2 text-[rgba(255,255,255,0.65)] hover:bg-[rgba(175,85,116,0.3)] hover:text-white"
               >
                 <Avatar className="h-7 w-7">
-                  <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                  <AvatarFallback className="bg-[#AF5574] text-xs text-white">{initials}</AvatarFallback>
                 </Avatar>
                 <div className="flex flex-1 flex-col truncate text-left">
                   <span className="truncate text-sm">{user?.displayName}</span>
-                  <span className="truncate text-xs text-muted-foreground">
+                  <span className="truncate text-xs text-[rgba(255,255,255,0.4)]">
                     {user?.email}
                   </span>
                 </div>

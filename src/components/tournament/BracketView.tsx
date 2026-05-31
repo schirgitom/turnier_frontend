@@ -46,18 +46,18 @@ function MatchCard({ match }: { match: BracketMatchDto }) {
     <div
       className={cn(
         "w-52 overflow-hidden rounded-lg border bg-card text-sm shadow-sm",
-        isLive && "ring-2 ring-blue-400",
+        isLive && "ring-2 ring-victora-secondary",
       )}
     >
       {/* Home row */}
       <div
         className={cn(
           "flex items-center gap-1.5 border-b px-3 py-2",
-          homeWon && "bg-green-50/70 dark:bg-green-950/25",
+          homeWon && "bg-[rgba(63,169,123,0.1)]",
         )}
       >
         {homeWon && (
-          <Check className="h-3 w-3 shrink-0 text-green-600 dark:text-green-400" />
+          <Check className="h-3 w-3 shrink-0 text-victora-success" />
         )}
         <span
           className={cn(
@@ -69,13 +69,13 @@ function MatchCard({ match }: { match: BracketMatchDto }) {
           {homeName}
         </span>
         {isLive && (
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" />
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-victora-secondary" />
         )}
         {match.score !== null && (
           <span
             className={cn(
               "shrink-0 font-bold tabular-nums",
-              homeWon ? "text-green-700 dark:text-green-400" : "text-muted-foreground",
+              homeWon ? "text-victora-success" : "text-muted-foreground",
             )}
           >
             {match.score.homePoints}
@@ -87,11 +87,11 @@ function MatchCard({ match }: { match: BracketMatchDto }) {
       <div
         className={cn(
           "flex items-center gap-1.5 px-3 py-2",
-          awayWon && "bg-green-50/70 dark:bg-green-950/25",
+          awayWon && "bg-[rgba(63,169,123,0.1)]",
         )}
       >
         {awayWon && (
-          <Check className="h-3 w-3 shrink-0 text-green-600 dark:text-green-400" />
+          <Check className="h-3 w-3 shrink-0 text-victora-success" />
         )}
         <span
           className={cn(
@@ -106,7 +106,7 @@ function MatchCard({ match }: { match: BracketMatchDto }) {
           <span
             className={cn(
               "shrink-0 font-bold tabular-nums",
-              awayWon ? "text-green-700 dark:text-green-400" : "text-muted-foreground",
+              awayWon ? "text-victora-success" : "text-muted-foreground",
             )}
           >
             {match.score.awayPoints}
@@ -186,11 +186,11 @@ export function BracketView({ data }: { data: EliminationBracketResponse }) {
               className="hidden sm:flex sm:flex-col sm:items-center sm:justify-center sm:px-8"
               style={{ height: `${totalHeight}px` }}
             >
-              <Trophy className="h-10 w-10 text-amber-500" />
-              <p className="mt-2 text-center text-lg font-bold text-amber-600 dark:text-amber-400">
+              <Trophy className="h-10 w-10 text-[#FCB45A]" />
+              <p className="mt-2 text-center text-lg font-bold text-[#57194B]">
                 {winner.participantName}
               </p>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#57194B]">
                 Sieger
               </p>
             </div>
@@ -201,11 +201,11 @@ export function BracketView({ data }: { data: EliminationBracketResponse }) {
       {/* Winner banner for mobile – shown below the bracket */}
       {winner && (
         <div className="flex flex-col items-center gap-1 sm:hidden">
-          <Trophy className="h-8 w-8 text-amber-500" />
-          <p className="text-lg font-bold text-amber-600 dark:text-amber-400">
+          <Trophy className="h-8 w-8 text-[#FCB45A]" />
+          <p className="text-lg font-bold text-[#57194B]">
             {winner.participantName}
           </p>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#57194B]">
             Sieger
           </p>
         </div>

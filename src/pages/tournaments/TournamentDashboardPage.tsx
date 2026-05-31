@@ -32,13 +32,13 @@ import { MatchStatus } from "@/types/match";
 
 const phaseStatusConfig: Record<
   string,
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
+  { label: string; className: string }
 > = {
-  Pending: { label: "Ausstehend", variant: "secondary" },
-  Generated: { label: "Generiert", variant: "outline" },
-  Active: { label: "Laufend", variant: "default" },
-  InProgress: { label: "Laufend", variant: "default" },
-  Completed: { label: "Abgeschlossen", variant: "outline" },
+  Pending: { label: "Ausstehend", className: "bg-[rgba(243,168,59,0.15)] text-[#c47e00] border-transparent" },
+  Generated: { label: "Generiert", className: "bg-[rgba(87,25,75,0.08)] text-[#57194B] border-transparent" },
+  Active: { label: "Laufend", className: "bg-[#AF5574] text-white border-transparent" },
+  InProgress: { label: "Laufend", className: "bg-[#AF5574] text-white border-transparent" },
+  Completed: { label: "Abgeschlossen", className: "bg-[#3FA97B] text-white border-transparent" },
 };
 
 function pendingReason(phase: PhaseResponse, allPhases: PhaseResponse[]): string {
@@ -61,7 +61,7 @@ function PhaseProgressBar({
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
   const barColor =
     status === "Completed"
-      ? "bg-green-500"
+      ? "bg-victora-success"
       : status === "InProgress" || status === "Active"
       ? "bg-primary"
       : "bg-muted-foreground/25";
@@ -146,16 +146,16 @@ export function TournamentDashboardPage() {
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Link to="participants" className="block">
-          <Card className="cursor-pointer transition-colors hover:bg-muted/50">
+          <Card className="cursor-pointer border-t-[3px] border-t-[#57194B] transition-colors hover:bg-muted/50">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Teilnehmer</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className="text-2xl font-bold text-[#57194B]">
                 {registrationsData?.registrations.length ?? 0}
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-[#AF5574]">
                 {registrationsData?.totalConfirmed ?? 0} bestätigt
                 {tournament?.maxParticipants
                   ? ` · max. ${tournament.maxParticipants}`
@@ -166,14 +166,14 @@ export function TournamentDashboardPage() {
         </Link>
 
         <Link to="matches" className="block">
-          <Card className="cursor-pointer transition-colors hover:bg-muted/50">
+          <Card className="cursor-pointer border-t-[3px] border-t-[#AF5574] transition-colors hover:bg-muted/50">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Spiele</CardTitle>
               <Swords className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{matches?.length ?? 0}</div>
-              <p className="text-xs text-muted-foreground">
+              <div className="text-2xl font-bold text-[#57194B]">{matches?.length ?? 0}</div>
+              <p className="text-xs text-[#AF5574]">
                 {completedMatches.length} abgeschlossen
               </p>
             </CardContent>
@@ -181,26 +181,26 @@ export function TournamentDashboardPage() {
         </Link>
 
         <Link to="matches" className="block">
-          <Card className="cursor-pointer transition-colors hover:bg-muted/50">
+          <Card className="cursor-pointer border-t-[3px] border-t-[#F75F61] transition-colors hover:bg-muted/50">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Live</CardTitle>
-              <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+              <div className="h-2 w-2 animate-pulse rounded-full bg-victora-success" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{liveMatches.length}</div>
-              <p className="text-xs text-muted-foreground">laufende Spiele</p>
+              <div className="text-2xl font-bold text-[#57194B]">{liveMatches.length}</div>
+              <p className="text-xs text-[#AF5574]">laufende Spiele</p>
             </CardContent>
           </Card>
         </Link>
 
         <Link to="settings" className="block">
-          <Card className="cursor-pointer transition-colors hover:bg-muted/50">
+          <Card className="cursor-pointer border-t-[3px] border-t-[#FCB45A] transition-colors hover:bg-muted/50">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Zeitraum</CardTitle>
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-sm font-semibold">
+              <div className="text-sm font-semibold text-[#57194B]">
                 {tournament &&
                   format(new Date(tournament.startDate), "dd. MMM", {
                     locale: de,
@@ -212,7 +212,7 @@ export function TournamentDashboardPage() {
                   })}
               </div>
               {tournament?.location && (
-                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                <p className="flex items-center gap-1 text-xs text-[#AF5574]">
                   <MapPin className="h-3 w-3" />
                   {tournament.location}
                 </p>
@@ -263,7 +263,7 @@ export function TournamentDashboardPage() {
                 const typeLabel = isGroup ? "Gruppenphase" : "K.O.-Phase";
                 const statusCfg = phaseStatusConfig[phase.status] ?? {
                   label: phase.status,
-                  variant: "secondary" as const,
+                  className: "bg-[rgba(87,25,75,0.1)] text-[#57194B] border-transparent",
                 };
                 const isPending = phase.status === "Pending";
                 const hasMatchData =
@@ -300,7 +300,7 @@ export function TournamentDashboardPage() {
                         <Badge variant="outline" className="text-xs font-normal">
                           {typeLabel}
                         </Badge>
-                        <Badge variant={statusCfg.variant} className="text-xs">
+                        <Badge className={cn("text-xs", statusCfg.className)}>
                           {statusCfg.label}
                         </Badge>
                       </div>
@@ -364,7 +364,7 @@ export function TournamentDashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+              <div className="h-2 w-2 animate-pulse rounded-full bg-victora-success" />
               Laufende Spiele
             </CardTitle>
           </CardHeader>

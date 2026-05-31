@@ -69,7 +69,7 @@ function WarningTooltip({ children, warnings }: { children: ReactNode; warnings:
       </TooltipTrigger>
       <TooltipContent
         side="bottom"
-        className="max-w-xs whitespace-normal bg-amber-600 border-amber-700 text-white"
+        className="max-w-xs whitespace-normal bg-[#F3A83B] border-[#F3A83B] text-white"
       >
         <ul className="space-y-1 py-0.5">
           {warnings.map((w, i) => (
@@ -97,14 +97,14 @@ function StepCircle({
   return (
     <div className="relative flex items-center justify-center">
       {state === "active" && (
-        <span className="absolute inline-flex h-10 w-10 rounded-full bg-primary opacity-25 animate-ping" />
+        <span className="absolute inline-flex h-10 w-10 rounded-full bg-[#AF5574] opacity-25 animate-ping" />
       )}
       <div
         className={cn(
           "relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 transition-colors",
-          state === "completed" && "border-primary bg-primary text-primary-foreground",
-          state === "active" && "border-primary bg-primary text-primary-foreground",
-          state === "future" && "border-muted-foreground/40 bg-background text-muted-foreground",
+          state === "completed" && "border-[#57194B] bg-[#57194B] text-white",
+          state === "active" && "border-[#AF5574] bg-[#AF5574] text-white",
+          state === "future" && "border-dashed border-muted-foreground/40 bg-background text-muted-foreground",
         )}
       >
         {state === "completed" ? (
@@ -114,7 +114,7 @@ function StepCircle({
         )}
       </div>
       {hasWarning && (
-        <span className="absolute -top-1 -right-1 z-20 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 shadow-sm">
+        <span className="absolute -top-1 -right-1 z-20 flex h-4 w-4 items-center justify-center rounded-full bg-[#F3A83B] shadow-sm">
           <AlertTriangle className="h-2.5 w-2.5 text-white" />
         </span>
       )}
@@ -139,7 +139,7 @@ function InlineWarnings({ stepWarnings }: { stepWarnings: string[] }) {
   return (
     <ul className="mt-1 space-y-0.5">
       {stepWarnings.map((w, i) => (
-        <li key={i} className="flex items-start gap-1 text-xs text-amber-600">
+        <li key={i} className="flex items-start gap-1 text-xs text-[#F3A83B]">
           <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
           <span>{w}</span>
         </li>

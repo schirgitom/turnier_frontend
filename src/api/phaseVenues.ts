@@ -3,7 +3,6 @@ import type {
   PhaseVenueListResponse,
   PhaseVenueDto,
   AddPhaseVenueRequest,
-  ActiveCourt,
 } from "@/types/phaseVenue";
 
 const base = (tournamentId: string, phaseId: string) =>
@@ -50,11 +49,4 @@ export async function removePhaseVenue(
   id: string,
 ): Promise<void> {
   await apiClient.delete(`${base(tournamentId, phaseId)}/${id}`);
-}
-
-export async function getVenueCourts(venueId: string): Promise<ActiveCourt[]> {
-  const response = await apiClient.get<ActiveCourt[]>(
-    `/venues/${venueId}/courts`,
-  );
-  return response.data.filter((c) => c.isActive !== false);
 }

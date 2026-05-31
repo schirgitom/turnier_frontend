@@ -202,7 +202,7 @@ export function TournamentSettingsPage() {
               </div>
             )}
             {updateMutation.isSuccess && (
-              <div className="rounded-md bg-green-500/10 p-3 text-sm text-green-700">
+              <div className="rounded-md bg-[rgba(63,169,123,0.1)] p-3 text-sm text-victora-success">
                 Änderungen gespeichert.
               </div>
             )}

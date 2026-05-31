@@ -23,7 +23,18 @@ initAuth().then(() => {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <RouterProvider router={router} />
-      <Toaster position="bottom-right" richColors closeButton />
+      <Toaster
+        position="bottom-right"
+        richColors
+        closeButton
+        toastOptions={{
+          classNames: {
+            success: "border-l-4 border-[#3FA97B]",
+            error: "border-l-4 border-[#D94E5F]",
+            warning: "border-l-4 border-[#F3A83B]",
+          },
+        }}
+      />
     </StrictMode>,
   );
 });

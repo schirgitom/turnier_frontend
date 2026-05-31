@@ -79,11 +79,11 @@ const PARTICIPANT_TYPE_ICONS = {
 
 const statusConfig: Record<
   string,
-  { label: string; variant: "secondary" | "default" | "outline" | "destructive" }
+  { label: string; className: string }
 > = {
-  Confirmed: { label: "Angemeldet", variant: "secondary" },
-  CheckedIn: { label: "Eingecheckt", variant: "default" },
-  Withdrawn: { label: "Zurückgezogen", variant: "destructive" },
+  Confirmed: { label: "Angemeldet", className: "bg-[rgba(87,25,75,0.1)] text-[#57194B] border-transparent" },
+  CheckedIn: { label: "Eingecheckt", className: "bg-[#3FA97B] text-white border-transparent" },
+  Withdrawn: { label: "Zurückgezogen", className: "bg-[#D94E5F] text-white border-transparent" },
 };
 
 export function ParticipantsPage() {
@@ -425,9 +425,9 @@ export function ParticipantsPage() {
                   </TableCell>
                   <TableCell>
                     {cfg ? (
-                      <Badge variant={cfg.variant}>{cfg.label}</Badge>
+                      <Badge className={cfg.className}>{cfg.label}</Badge>
                     ) : (
-                      <Badge variant="secondary">{reg.status}</Badge>
+                      <Badge className="bg-[rgba(87,25,75,0.1)] text-[#57194B] border-transparent">{reg.status}</Badge>
                     )}
                   </TableCell>
                   <TableCell>
