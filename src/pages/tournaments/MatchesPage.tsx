@@ -1,7 +1,7 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, useMemo, useRef, useEffect } from "react";
 import { useParams, useOutletContext } from "react-router";
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, FlaskConical, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Check, Loader2, FlaskConical, Plus, Trash2, ChevronDown, ChevronUp, Trophy } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { getMatches, startMatch, submitResult } from "@/api/matches";
@@ -14,6 +14,13 @@ import type { SetScore } from "@/types/match";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -30,6 +37,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { MatchStatus } from "@/types/match";
 import type { MatchDto } from "@/types/match";
 import { cn } from "@/lib/utils";
@@ -72,7 +85,7 @@ function toGermanGroup(name: string): string {
   return name.replace(/^Group\s/, "Gruppe ");
 }
 
-type FilterTab = "all" | "inprogress" | "scheduled" | "completed";
+type FilterTab = "all" | "inprogress" | "scheduled" | "notcompleted" | "completed";
 
 interface MatchMeta {
   phaseId: string;
@@ -114,6 +127,21 @@ function emptySet(): SetRow {
   return { homeScore: "", awayScore: "" };
 }
 
+function getMatchState(sets: SetRow[], setsToWin: number) {
+  let homeSets = 0;
+  let awaySets = 0;
+  for (const set of sets) {
+    const h = typeof set.homeScore === "number" ? set.homeScore : NaN;
+    const a = typeof set.awayScore === "number" ? set.awayScore : NaN;
+    if (!isNaN(h) && !isNaN(a)) {
+      if (h > a) homeSets++;
+      else if (a > h) awaySets++;
+    }
+    if (homeSets >= setsToWin || awaySets >= setsToWin) break;
+  }
+  return { homeSets, awaySets, isComplete: homeSets >= setsToWin || awaySets >= setsToWin };
+}
+
 export function MatchesPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const { tournament } = useOutletContext<{ tournament: TournamentDto | undefined }>();
@@ -126,6 +154,11 @@ export function MatchesPage() {
   const [setValidationError, setSetValidationError] = useState<string | null>(null);
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
   const [selectedPhase, setSelectedPhase] = useState<string>("all");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchText, setSearchText] = useState("");
+  const [selectedParticipant, setSelectedParticipant] = useState("");
+  const [hideByes, setHideByes] = useState(true);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -221,6 +254,26 @@ export function MatchesPage() {
     }
   });
 
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => setSearchText(searchInput), 300);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [searchInput]);
+
+  const allParticipants = useMemo(() => {
+    const names = new Set<string>();
+    matches?.forEach((m) => {
+      if (m.homeParticipantName) names.add(m.homeParticipantName);
+      if (m.awayParticipantName) names.add(m.awayParticipantName);
+    });
+    return Array.from(names).sort((a, b) => {
+      const numA = parseInt(a.split(" ").pop() ?? "");
+      const numB = parseInt(b.split(" ").pop() ?? "");
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.localeCompare(b, "de");
+    });
+  }, [matches]);
+
   const submitMutation = useMutation({
     mutationFn: async (data: { sets: SetScore[]; setsToWinOverride?: number }) => {
       if (selectedMatch?.status === MatchStatus.Scheduled) {
@@ -254,14 +307,37 @@ export function MatchesPage() {
     return matches.filter((m) => matchMeta.get(m.id)?.phaseId === selectedPhase);
   })();
 
-  const filteredMatches = (() => {
+  const statusFilteredMatches = (() => {
     switch (filterTab) {
       case "inprogress": return phaseFilteredBase.filter((m) => m.status === MatchStatus.InProgress);
-      case "scheduled": return phaseFilteredBase.filter((m) => m.status === MatchStatus.Scheduled);
+      case "scheduled": return phaseFilteredBase.filter((m) => m.status === MatchStatus.Scheduled || m.status == null);
+      case "notcompleted": return phaseFilteredBase.filter((m) => m.status !== MatchStatus.Completed);
       case "completed": return phaseFilteredBase.filter((m) => m.status === MatchStatus.Completed);
       default: return phaseFilteredBase;
     }
   })();
+
+  const filteredMatches = useMemo(() => {
+    let result = statusFilteredMatches;
+    if (hideByes) {
+      result = result.filter((m) => m.homeParticipantName && m.awayParticipantName);
+    }
+    if (selectedParticipant) {
+      result = result.filter(
+        (m) => m.homeParticipantName === selectedParticipant || m.awayParticipantName === selectedParticipant,
+      );
+    }
+    if (searchText.trim()) {
+      const q = searchText.toLowerCase();
+      result = result.filter(
+        (m) =>
+          m.homeParticipantName?.toLowerCase().includes(q) ||
+          m.awayParticipantName?.toLowerCase().includes(q),
+      );
+    }
+    return result;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilteredMatches, hideByes, selectedParticipant, searchText]);
 
   const inProgressInPhase = phaseFilteredBase.filter((m) => m.status === MatchStatus.InProgress);
 
@@ -314,9 +390,15 @@ export function MatchesPage() {
       return;
     }
 
-    const hasDrawnSet = sets.some((s) => s.homeScore === s.awayScore);
-    if (hasDrawnSet) {
+    if (hasAnyDrawError) {
       setSetValidationError("Ein Satz kann nicht unentschieden enden.");
+      return;
+    }
+
+    if (!matchState.isComplete) {
+      setSetValidationError(
+        `Das Spiel ist noch nicht entschieden. Einer der Spieler muss ${dialogSetsToWin} Sätze gewonnen haben.`,
+      );
       return;
     }
 
@@ -334,6 +416,23 @@ export function MatchesPage() {
     if (!Number.isInteger(parsed) || parsed < 1) return "Mindestens 1";
     return null;
   })();
+
+  const dialogSetsToWin = (() => {
+    const override = setsToWinOverride.trim() !== "" ? Number.parseInt(setsToWinOverride, 10) : null;
+    if (override !== null && Number.isInteger(override) && override >= 1) return override;
+    return tournament?.matchSetsToWinOverride ?? tournament?.sport?.defaultRules?.setsToWin ?? 4;
+  })();
+  const maxSets = dialogSetsToWin * 2 - 1;
+  const matchState = getMatchState(sets, dialogSetsToWin);
+  const setDrawErrors = sets.map(
+    (s) => typeof s.homeScore === "number" && typeof s.awayScore === "number" && s.homeScore === s.awayScore,
+  );
+  const hasAnyDrawError = setDrawErrors.some(Boolean);
+  const winnerName = matchState.homeSets >= dialogSetsToWin
+    ? (selectedMatch?.homeParticipantName ?? "Heim")
+    : matchState.awaySets >= dialogSetsToWin
+    ? (selectedMatch?.awayParticipantName ?? "Auswärts")
+    : null;
 
   const handleGenerateResults = async () => {
     setGenerating(true);
@@ -380,6 +479,16 @@ export function MatchesPage() {
     );
   }
 
+  const activeFilterCount =
+    (searchText.trim() ? 1 : 0) + (selectedParticipant ? 1 : 0) + (hideByes ? 1 : 0);
+
+  const resetAdvancedFilters = () => {
+    setSearchInput("");
+    setSearchText("");
+    setSelectedParticipant("");
+    setHideByes(true);
+  };
+
   const PHASE_TABS = [
     { id: "all", label: "Alle Phasen", count: matches?.length ?? 0 },
     ...phases.map((phase) => ({
@@ -389,6 +498,8 @@ export function MatchesPage() {
     })),
   ];
 
+  const notCompletedInPhase = phaseFilteredBase.filter((m) => m.status !== MatchStatus.Completed);
+
   const STATUS_TABS: { id: FilterTab; label: string; count?: number }[] = [
     { id: "all", label: "Alle", count: phaseFilteredBase.length },
     {
@@ -397,13 +508,18 @@ export function MatchesPage() {
       count: inProgressInPhase.length || undefined,
     },
     { id: "scheduled", label: "Geplant" },
+    { id: "notcompleted", label: "Nicht abgeschlossen", count: notCompletedInPhase.length || undefined },
     { id: "completed", label: "Abgeschlossen" },
   ];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Spiele ({matches?.length ?? 0})</h2>
+        <h2 className="text-lg font-semibold">
+          {filteredMatches.length < (matches?.length ?? 0)
+            ? `Zeige ${filteredMatches.length} von ${matches?.length ?? 0} Spielen`
+            : `Spiele (${matches?.length ?? 0})`}
+        </h2>
         {showDemoButton && (
           <Button variant="outline" size="sm" onClick={() => setDemoDialogOpen(true)}>
             <FlaskConical className="mr-2 h-4 w-4" />
@@ -471,6 +587,55 @@ export function MatchesPage() {
         </div>
       )}
 
+      {/* Advanced filter bar */}
+      {(matches?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            placeholder="Teilnehmer suchen..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="h-8 w-48 text-sm"
+          />
+          <Select
+            value={selectedParticipant || "__all__"}
+            onValueChange={(v) => setSelectedParticipant(v === "__all__" ? "" : v)}
+          >
+            <SelectTrigger className="h-8 w-48 text-sm">
+              <SelectValue placeholder="Teilnehmer wählen..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Alle Teilnehmer</SelectItem>
+              {allParticipants.map((name) => (
+                <SelectItem key={name} value={name}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={hideByes}
+              onChange={(e) => setHideByes(e.target.checked)}
+              className="h-4 w-4 rounded border-input accent-primary"
+            />
+            Freilose ausblenden
+          </label>
+          {activeFilterCount > 0 && (
+            <>
+              <Badge variant="secondary" className="text-xs">
+                {activeFilterCount} Filter aktiv
+              </Badge>
+              <button
+                type="button"
+                onClick={resetAdvancedFilters}
+                className="text-xs text-muted-foreground underline hover:text-foreground"
+              >
+                Filter zurücksetzen
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {filteredMatches.length === 0 ? (
         <p className="py-8 text-center text-muted-foreground">
           {matches?.length === 0
@@ -523,11 +688,15 @@ export function MatchesPage() {
                     {/* Home name */}
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        <span className={cn(
-                          homeWon ? "font-semibold" : isCompleted ? "text-muted-foreground" : "font-medium",
-                        )}>
-                          {match.homeParticipantName ?? "TBD"}
-                        </span>
+                        {match.homeParticipantName != null ? (
+                          <span className={cn(
+                            homeWon ? "font-semibold" : isCompleted ? "text-muted-foreground" : "font-medium",
+                          )}>
+                            {match.homeParticipantName}
+                          </span>
+                        ) : (
+                          <span style={{ fontStyle: "italic", color: "var(--color-text-secondary)" }}>TBD</span>
+                        )}
                         {homeWon && <Check className="h-3.5 w-3.5 shrink-0 text-victora-success" />}
                       </div>
                     </TableCell>
@@ -564,11 +733,15 @@ export function MatchesPage() {
                     {/* Away name */}
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        <span className={cn(
-                          awayWon ? "font-semibold" : isCompleted ? "text-muted-foreground" : "font-medium",
-                        )}>
-                          {match.awayParticipantName ?? "TBD"}
-                        </span>
+                        {match.awayParticipantName != null ? (
+                          <span className={cn(
+                            awayWon ? "font-semibold" : isCompleted ? "text-muted-foreground" : "font-medium",
+                          )}>
+                            {match.awayParticipantName}
+                          </span>
+                        ) : (
+                          <span style={{ fontStyle: "italic", color: "var(--color-text-secondary)" }}>TBD</span>
+                        )}
                         {awayWon && <Check className="h-3.5 w-3.5 shrink-0 text-victora-success" />}
                       </div>
                     </TableCell>
@@ -587,11 +760,11 @@ export function MatchesPage() {
                     </TableCell>
 
                     <TableCell>
-                      <Badge className={cn("gap-1.5", statusClasses[match.status])}>
+                      <Badge className={cn("gap-1.5", statusClasses[match.status] ?? "bg-muted text-muted-foreground border-transparent")}>
                         {isLive && (
                           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-white" />
                         )}
-                        {statusLabels[match.status]}
+                        {statusLabels[match.status] ?? match.status ?? '–'}
                       </Badge>
                     </TableCell>
 
@@ -761,53 +934,85 @@ export function MatchesPage() {
             {/* Set rows */}
             <div className="space-y-2">
               {sets.map((set, idx) => (
-                <div
-                  key={idx}
-                  className="grid grid-cols-[3rem_1fr_1rem_1fr_2rem] items-center gap-2"
-                >
-                  <span className="text-xs text-muted-foreground text-right">
-                    Satz {idx + 1}
-                  </span>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={set.homeScore}
-                    onChange={(e) => handleSetChange(idx, "homeScore", e.target.value)}
-                    className="text-center"
-                  />
-                  <span className="text-center font-bold">:</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={set.awayScore}
-                    onChange={(e) => handleSetChange(idx, "awayScore", e.target.value)}
-                    className="text-center"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                    onClick={() => handleRemoveSet(idx)}
-                    disabled={sets.length === 1}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                <div key={idx} className="space-y-1">
+                  <div className="grid grid-cols-[3rem_1fr_1rem_1fr_2rem] items-center gap-2">
+                    <span className="text-xs text-muted-foreground text-right">
+                      Satz {idx + 1}
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={set.homeScore}
+                      onChange={(e) => handleSetChange(idx, "homeScore", e.target.value)}
+                      className={cn("text-center", setDrawErrors[idx] && "border-destructive")}
+                    />
+                    <span className="text-center font-bold">:</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={set.awayScore}
+                      onChange={(e) => handleSetChange(idx, "awayScore", e.target.value)}
+                      className={cn("text-center", setDrawErrors[idx] && "border-destructive")}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => handleRemoveSet(idx)}
+                      disabled={sets.length === 1}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  {setDrawErrors[idx] && (
+                    <p className="pl-14 text-xs text-destructive">Kein Unentschieden möglich</p>
+                  )}
                 </div>
               ))}
             </div>
 
-            {sets.length < 7 && (
-              <Button variant="outline" size="sm" className="w-full" onClick={handleAddSet}>
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                Satz hinzufügen
-              </Button>
+            {/* Match decided indicator */}
+            {matchState.isComplete && winnerName && (
+              <div className="flex items-center gap-2 rounded-md bg-victora-success/10 px-3 py-2 text-sm text-victora-success">
+                <Trophy className="h-4 w-4 shrink-0" />
+                <span>
+                  Spiel entschieden: <strong>{winnerName}</strong> gewinnt{" "}
+                  {matchState.homeSets}:{matchState.awaySets}
+                </span>
+              </div>
+            )}
+
+            {sets.length < maxSets && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="w-full">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={handleAddSet}
+                        disabled={matchState.isComplete}
+                      >
+                        <Plus className="mr-1.5 h-3.5 w-3.5" />
+                        Satz hinzufügen
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {matchState.isComplete && (
+                    <TooltipContent>
+                      Spiel bereits entschieden ({matchState.homeSets}:{matchState.awaySets})
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
             )}
           </div>
 
           <DialogFooter>
             <Button
               onClick={handleSubmitResult}
-              disabled={submitMutation.isPending || sets.length === 0 || !!setsToWinOverrideError}
+              disabled={submitMutation.isPending || sets.length === 0 || !!setsToWinOverrideError || hasAnyDrawError}
             >
               {submitMutation.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

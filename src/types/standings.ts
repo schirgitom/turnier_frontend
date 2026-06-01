@@ -16,6 +16,24 @@ export interface StandingEntry {
   isQualified: boolean;
 }
 
+// DTO shape returned by the public display standings endpoint
+export interface DisplayStandingEntry {
+  participantId: string;
+  participantName: string;
+  rank: number;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalDifference: number;
+  points: number;
+}
+
+export interface GroupStandingsDto {
+  groupName: string;
+  entries: DisplayStandingEntry[];
+}
+
 export interface GroupStandings {
   groupId: string;
   groupName: string;

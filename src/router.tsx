@@ -19,6 +19,7 @@ import { PhasesPage } from "@/pages/tournaments/PhasesPage";
 import { MatchesPage } from "@/pages/tournaments/MatchesPage";
 import { StandingsPage } from "@/pages/tournaments/StandingsPage";
 import { DisplayPage } from "@/pages/display/DisplayPage";
+import { InfoPage } from "@/pages/display/InfoPage";
 import { AccountPage } from "@/pages/account/AccountPage";
 
 function requireAuth() {
@@ -83,6 +84,10 @@ export const router = createBrowserRouter([
       {
         path: "/display/:tournamentId",
         element: <DisplayPage />,
+      },
+      {
+        path: "/info/:tournamentId",
+        element: <InfoPage />,
       },
     ],
   },

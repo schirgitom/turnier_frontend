@@ -7,7 +7,13 @@ import {
   BarChart3,
   LayoutGrid,
   GitMerge,
+  Monitor,
+  Info,
+  Copy,
+  ExternalLink,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { getTournament } from "@/api/tournaments";
@@ -360,6 +366,9 @@ export function TournamentDashboardPage() {
         </CardContent>
       </Card>
 
+      {/* Display & Info links */}
+      <DisplayLinksCard tournamentId={tournamentId!} />
+
       {liveMatches.length > 0 && (
         <Card>
           <CardHeader>
@@ -396,5 +405,88 @@ export function TournamentDashboardPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+function DisplayLinksCard({ tournamentId }: { tournamentId: string }) {
+  const origin = window.location.origin;
+  const displayUrl = `${origin}/display/${tournamentId}`;
+  const infoUrl = `${origin}/info/${tournamentId}`;
+
+  const copyToClipboard = (url: string, label: string) => {
+    navigator.clipboard.writeText(url).then(() => {
+      toast.success(`${label} kopiert!`);
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Display & Info</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4 sm:grid-cols-2">
+        {/* Beamer display */}
+        <div className="space-y-3 rounded-lg border p-4">
+          <div className="flex items-center gap-2">
+            <Monitor className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium">Beamer-Ansicht</span>
+          </div>
+          <p className="text-xs text-muted-foreground break-all">{displayUrl}</p>
+          <div className="flex justify-center">
+            <QRCodeSVG value={displayUrl} size={96} />
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => copyToClipboard(displayUrl, "Beamer-Link")}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Kopieren
+            </button>
+            <a
+              href={displayUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Öffnen
+            </a>
+          </div>
+        </div>
+
+        {/* Participant info */}
+        <div className="space-y-3 rounded-lg border p-4">
+          <div className="flex items-center gap-2">
+            <Info className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium">Teilnehmer-Info</span>
+          </div>
+          <p className="text-xs text-muted-foreground break-all">{infoUrl}</p>
+          <div className="flex justify-center">
+            <QRCodeSVG value={infoUrl} size={96} />
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => copyToClipboard(infoUrl, "Info-Link")}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Kopieren
+            </button>
+            <a
+              href={infoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Öffnen
+            </a>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

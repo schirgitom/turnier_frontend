@@ -30,10 +30,15 @@ export interface MatchDto {
   awayParticipantName: string | null;
   score: MatchScore | null;
   scheduledAt: string | null;
+  /** Alias returned by the display endpoint */
+  scheduledTime?: string | null;
   courtId: string | null;
   courtName: string | null;
   startedAt: string | null;
   completedAt: string | null;
+  /** Flattened score fields returned by the display endpoint */
+  homePoints?: number | null;
+  awayPoints?: number | null;
   // TODO: backend should include phaseId in match response
   phaseId?: string | null;
   // TODO: backend should include groupId in match response
