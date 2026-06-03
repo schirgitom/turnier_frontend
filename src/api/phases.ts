@@ -12,6 +12,11 @@ import type {
 } from "@/types/phase";
 import type { PhaseMatchesResponse } from "@/types/bracket";
 
+export interface AdvancePhaseResponse {
+  wiredLinks: number;
+  updatedSlots: number;
+}
+
 const base = (tournamentId: string) => `/tournaments/${tournamentId}/phases`;
 
 export async function getPhases(
@@ -128,6 +133,62 @@ export async function getGroups(
   return response.data;
 }
 
+export async function createGroup(
+  tournamentId: string,
+  phaseId: string,
+  name: string,
+): Promise<GroupResponse> {
+  const response = await apiClient.post<GroupResponse>(
+    `${base(tournamentId)}/${phaseId}/groups`,
+    { name },
+  );
+  return response.data;
+}
+
+export async function renameGroup(
+  tournamentId: string,
+  phaseId: string,
+  groupId: string,
+  name: string,
+): Promise<void> {
+  await apiClient.put(`${base(tournamentId)}/${phaseId}/groups/${groupId}`, {
+    name,
+  });
+}
+
+export async function deleteGroup(
+  tournamentId: string,
+  phaseId: string,
+  groupId: string,
+): Promise<void> {
+  await apiClient.delete(
+    `${base(tournamentId)}/${phaseId}/groups/${groupId}`,
+  );
+}
+
+export async function addParticipantToGroup(
+  tournamentId: string,
+  phaseId: string,
+  groupId: string,
+  participantId: string,
+): Promise<void> {
+  await apiClient.post(
+    `${base(tournamentId)}/${phaseId}/groups/${groupId}/participants`,
+    { participantId },
+  );
+}
+
+export async function removeParticipantFromGroup(
+  tournamentId: string,
+  phaseId: string,
+  groupId: string,
+  participantId: string,
+): Promise<void> {
+  await apiClient.delete(
+    `${base(tournamentId)}/${phaseId}/groups/${groupId}/participants/${participantId}`,
+  );
+}
+
 export async function resetPhase(
   tournamentId: string,
   phaseId: string,
@@ -159,3 +220,14 @@ export async function reassignParticipant(
   );
   return response.data;
 }
+
+export async function advancePhase(
+  tournamentId: string,
+  phaseId: string,
+): Promise<AdvancePhaseResponse> {
+  const response = await apiClient.post<AdvancePhaseResponse>(
+    `${base(tournamentId)}/${phaseId}/advance`,
+  );
+  return response.data;
+}
+

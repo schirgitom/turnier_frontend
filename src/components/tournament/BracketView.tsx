@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Check, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BracketMatchDto, EliminationBracketResponse } from "@/types/bracket";
@@ -17,9 +18,21 @@ function getRoundName(roundName: string, matchCount: number): string {
   return `Runde der letzten ${players}`;
 }
 
+function formatSetScores(match: BracketMatchDto): string | null {
+  const sets = match.score?.sets ?? match.sets;
+  if (!sets || sets.length === 0) return null;
+
+  return sets
+    .slice()
+    .sort((a, b) => a.setNumber - b.setNumber)
+    .map((set) => `${set.homeScore}:${set.awayScore}`)
+    .join(" | ");
+}
+
 function MatchCard({ match }: { match: BracketMatchDto }) {
   const isCompleted = match.status === "Completed";
   const isLive = match.status === "InProgress";
+  const setScores = formatSetScores(match);
 
   const homeWon =
     isCompleted &&
@@ -113,12 +126,23 @@ function MatchCard({ match }: { match: BracketMatchDto }) {
           </span>
         )}
       </div>
+
+      {setScores && (
+        <div className="border-t bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground">
+          <span className="font-medium">Sätze:</span> {setScores}
+        </div>
+      )}
     </div>
   );
 }
 
 export function BracketView({ data }: { data: EliminationBracketResponse }) {
   const { rounds, thirdPlaceMatch, winner } = data;
+  const [activeRoundIndex, setActiveRoundIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveRoundIndex(0);
+  }, [rounds.length]);
 
   if (rounds.length === 0) {
     return (
@@ -134,11 +158,47 @@ export function BracketView({ data }: { data: EliminationBracketResponse }) {
   const firstRoundCount = rounds[0]!.matches.length;
   const slotHeight = 120; // px per first-round match slot
   const totalHeight = firstRoundCount * slotHeight;
+  const activeRound = rounds[activeRoundIndex] ?? rounds[0]!;
+
 
   return (
     <div className="space-y-8">
-      {/* Main bracket ─ stacked on mobile, horizontal scroll on sm+ */}
-      <div className="overflow-x-auto">
+      {/* Compact mode: one round at a time (no horizontal scrolling) */}
+      <div className="space-y-4 xl:hidden">
+        <div className="flex items-center justify-between rounded-md border px-3 py-2">
+          <button
+            type="button"
+            className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+            onClick={() => setActiveRoundIndex((idx) => Math.max(0, idx - 1))}
+            disabled={activeRoundIndex === 0}
+          >
+            Zuruck
+          </button>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {getRoundName(activeRound.roundName, activeRound.matches.length)} ({activeRoundIndex + 1}/{rounds.length})
+          </span>
+          <button
+            type="button"
+            className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+            onClick={() =>
+              setActiveRoundIndex((idx) => Math.min(rounds.length - 1, idx + 1))
+            }
+            disabled={activeRoundIndex >= rounds.length - 1}
+          >
+            Weiter
+          </button>
+        </div>
+        <div className="space-y-3">
+          {activeRound.matches.map((match) => (
+            <div key={match.matchId} className="flex justify-center px-1">
+              <MatchCard match={match} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Full bracket on large screens */}
+      <div className="hidden overflow-x-auto xl:block">
         <div className="flex flex-col gap-8 sm:flex-row sm:min-w-max sm:items-start">
 
           {rounds.map((round) => {
@@ -152,20 +212,8 @@ export function BracketView({ data }: { data: EliminationBracketResponse }) {
                   </span>
                 </div>
 
-                {/* Mobile: natural flow */}
-                <div className="flex flex-col gap-3 sm:hidden">
-                  {round.matches.map((match) => (
-                    <div key={match.matchId} className="flex justify-center px-3">
-                      <MatchCard match={match} />
-                    </div>
-                  ))}
-                </div>
-
                 {/* Desktop: fixed-height column so cards align with predecessors */}
-                <div
-                  className="hidden sm:flex sm:flex-col"
-                  style={{ height: `${totalHeight}px` }}
-                >
+                <div className="flex flex-col" style={{ height: `${totalHeight}px` }}>
                   {round.matches.map((match) => (
                     <div
                       key={match.matchId}
@@ -198,9 +246,9 @@ export function BracketView({ data }: { data: EliminationBracketResponse }) {
         </div>
       </div>
 
-      {/* Winner banner for mobile – shown below the bracket */}
+      {/* Winner banner for compact mode */}
       {winner && (
-        <div className="flex flex-col items-center gap-1 sm:hidden">
+        <div className="flex flex-col items-center gap-1 xl:hidden">
           <Trophy className="h-8 w-8 text-[#FCB45A]" />
           <p className="text-lg font-bold text-[#57194B]">
             {winner.participantName}

@@ -9,7 +9,15 @@ export interface GroupMatchDto {
   homeParticipantName: string | null;
   awayParticipantId: string | null;
   awayParticipantName: string | null;
-  score: { homePoints: number; awayPoints: number } | null;
+  score: {
+    homePoints: number;
+    awayPoints: number;
+    sets?: {
+      setNumber: number;
+      homeScore: number;
+      awayScore: number;
+    }[];
+  } | null;
   scheduledAt: string | null;
 }
 
@@ -22,13 +30,28 @@ export interface GroupMatchesResponse {
 // Elimination bracket data
 
 export interface BracketMatchDto {
+  // Optional set-level details if backend provides them.
+  // Used for richer display output (e.g. 11:8 | 8:11 | Gesamt 2:1).
+  sets?: {
+    setNumber: number;
+    homeScore: number;
+    awayScore: number;
+  }[];
   matchId: string;
   matchNumber: number;
   homeParticipantId: string | null;
   homeParticipantName: string | null;
   awayParticipantId: string | null;
   awayParticipantName: string | null;
-  score: { homePoints: number; awayPoints: number } | null;
+  score: {
+    homePoints: number;
+    awayPoints: number;
+    sets?: {
+      setNumber: number;
+      homeScore: number;
+      awayScore: number;
+    }[];
+  } | null;
   status: string;
   winnerId: string | null;
   isBye: boolean;

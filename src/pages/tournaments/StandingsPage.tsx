@@ -1,8 +1,9 @@
+import { useMemo } from "react";
 import { useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Send } from "lucide-react";
 import { toast } from "sonner";
-import { getPhases, getPhaseMatches } from "@/api/phases";
+import { getPhases, getPhaseMatches, advancePhase } from "@/api/phases";
 import { getStandings, recalculateStandings } from "@/api/standings";
 import { BracketView } from "@/components/tournament/BracketView";
 import { isGroupPhase } from "@/types/phase";
@@ -52,6 +53,13 @@ export function StandingsPage() {
   });
 
   const phases = phasesData?.phases ?? [];
+  const eliminationPhaseIdsByOrder = useMemo(
+    () =>
+      phases
+        .filter((phase) => !isGroupPhase(phase))
+        .map((phase) => ({ id: phase.id, phaseOrder: phase.phaseOrder })),
+    [phases],
+  );
 
   if (phasesLoading) {
     return (
@@ -84,7 +92,12 @@ export function StandingsPage() {
         {phases.map((phase) => (
           <TabsContent key={phase.id} value={phase.id}>
             {isGroupPhase(phase) ? (
-              <GroupPhaseView tournamentId={tournamentId!} phaseId={phase.id} />
+              <GroupPhaseView
+                tournamentId={tournamentId!}
+                phaseId={phase.id}
+                phaseOrder={phase.phaseOrder}
+                eliminationPhaseIdsByOrder={eliminationPhaseIdsByOrder}
+              />
             ) : (
               <EliminationPhaseView
                 tournamentId={tournamentId!}
@@ -103,9 +116,13 @@ export function StandingsPage() {
 function GroupPhaseView({
   tournamentId,
   phaseId,
+  phaseOrder,
+  eliminationPhaseIdsByOrder,
 }: {
   tournamentId: string;
   phaseId: string;
+  phaseOrder: number;
+  eliminationPhaseIdsByOrder: Array<{ id: string; phaseOrder: number }>;
 }) {
   return (
     <Tabs defaultValue="tabelle">
@@ -114,7 +131,12 @@ function GroupPhaseView({
         <TabsTrigger value="spielplan">Spielplan</TabsTrigger>
       </TabsList>
       <TabsContent value="tabelle">
-        <PhaseStandings tournamentId={tournamentId} phaseId={phaseId} />
+        <PhaseStandings
+          tournamentId={tournamentId}
+          phaseId={phaseId}
+          phaseOrder={phaseOrder}
+          eliminationPhaseIdsByOrder={eliminationPhaseIdsByOrder}
+        />
       </TabsContent>
       <TabsContent value="spielplan">
         <GroupMatchesPlan tournamentId={tournamentId} phaseId={phaseId} />
@@ -283,11 +305,19 @@ function EliminationPhaseView({
 function PhaseStandings({
   tournamentId,
   phaseId,
+  phaseOrder,
+  eliminationPhaseIdsByOrder,
 }: {
   tournamentId: string;
   phaseId: string;
+  phaseOrder: number;
+  eliminationPhaseIdsByOrder: Array<{ id: string; phaseOrder: number }>;
 }) {
   const queryClient = useQueryClient();
+  const targetEliminationPhase = useMemo(
+    () => eliminationPhaseIdsByOrder.find((phase) => phase.phaseOrder > phaseOrder),
+    [eliminationPhaseIdsByOrder, phaseOrder],
+  );
 
   const { data, isLoading } = useQuery({
     queryKey: ["standings", tournamentId, phaseId],
@@ -308,6 +338,26 @@ function PhaseStandings({
     },
   });
 
+  const advanceMutation = useMutation({
+    mutationFn: () => {
+      if (!targetEliminationPhase) {
+        throw new Error("Keine nachfolgende K.O.-Phase gefunden.");
+      }
+      return advancePhase(tournamentId, targetEliminationPhase.id);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+      queryClient.invalidateQueries({ queryKey: ["standings", tournamentId, phaseId] });
+      queryClient.invalidateQueries({ queryKey: ["phaseMatches", tournamentId] });
+      toast.success(
+        `Aufstieg aktualisiert: ${result.wiredLinks} Verknüpfungen, ${result.updatedSlots} Slots.`,
+      );
+    },
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error));
+    },
+  });
+
   const groups = data?.groups ?? [];
   const isEmpty =
     groups.length === 0 || groups.every((g) => g.standings.length === 0);
@@ -318,7 +368,25 @@ function PhaseStandings({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => advanceMutation.mutate()}
+          disabled={advanceMutation.isPending || !targetEliminationPhase}
+          title={
+            targetEliminationPhase
+              ? `Aufsteiger in Phase ${targetEliminationPhase.phaseOrder} eintragen`
+              : "Keine nachfolgende K.O.-Phase vorhanden"
+          }
+        >
+          {advanceMutation.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Send className="mr-2 h-4 w-4" />
+          )}
+          Aufsteiger in K.O. eintragen
+        </Button>
         <Button
           variant="outline"
           size="sm"

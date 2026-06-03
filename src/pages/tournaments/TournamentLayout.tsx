@@ -1,6 +1,7 @@
 import { Outlet, NavLink, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ExternalLink,
   LayoutDashboard,
   Settings,
   Users,
@@ -13,6 +14,7 @@ import { getTournament } from "@/api/tournaments";
 import { useSignalR } from "@/hooks/useSignalR";
 import { useAuthStore } from "@/store/authStore";
 import { queryClient } from "@/lib/queryClient";
+import { getAppConfig } from "@/lib/runtimeConfig";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -38,6 +40,7 @@ const navItems = [
 export function TournamentLayout() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const accessToken = useAuthStore((s) => s.accessToken);
+  const hubUrl = getAppConfig().hubUrl;
 
   const { data: tournament, isLoading } = useQuery({
     queryKey: ["tournament", tournamentId],
@@ -46,7 +49,7 @@ export function TournamentLayout() {
   });
 
   useSignalR({
-    hubUrl: "/hubs/tournament",
+    hubUrl,
     tournamentId: tournamentId!,
     queryClient,
     accessToken,
@@ -66,6 +69,15 @@ export function TournamentLayout() {
                   {simplifiedLabel(tournament.status)}
                 </Badge>
               )}
+              <a
+                href={`/public/${tournamentId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Öffentliche Ansicht
+              </a>
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -7,16 +7,20 @@ import { z } from "zod";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Download,
   GripVertical,
   Loader2,
+  Pencil,
   Plus,
   CalendarClock,
   RefreshCw,
   RotateCcw,
   Trash2,
+  UserMinus,
   Users,
   Swords,
   Zap,
@@ -45,16 +49,26 @@ import {
   generateAllPhases,
   resetPhase,
   reassignParticipant,
+  createGroup,
+  renameGroup,
+  deleteGroup,
+  addParticipantToGroup,
+  removeParticipantFromGroup,
 } from "@/api/phases";
 import { getPhaseVenues, updatePhaseVenue } from "@/api/phaseVenues";
-import { schedulePhase } from "@/api/scheduling";
+import {
+  retimePhase,
+  downloadFinalRankingPdf,
+  downloadGroupSchedulePdf,
+  downloadPhaseQualifiersPdf,
+  downloadParticipantSchedulePdf,
+} from "@/api/scheduling";
 import type { AddPhaseVenueRequest } from "@/types/phaseVenue";
 import { getRegistrations } from "@/api/registrations";
 import { isGroupPhase } from "@/types/phase";
 import type {
   PhaseResponse,
   GroupPhaseResponse,
-  GroupResponse,
   EliminationPhaseResponse,
   GroupParticipant,
   GenerateMatchesResponse,
@@ -62,12 +76,6 @@ import type {
 } from "@/types/phase";
 import { getApiErrorMessage } from "@/api/client";
 import { cn } from "@/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -126,6 +134,21 @@ const statusLabels: Record<string, string> = {
   Completed: "Abgeschlossen",
 };
 
+function getPhaseStatusHint(status: string): string {
+  switch (status) {
+    case "Pending":
+      return "Phase ist noch ausstehend. Zeiten können erst nach der Generierung aktualisiert werden.";
+    case "Generated":
+      return "Phase ist generiert. Zeiten können aktualisiert oder die Phase zurückgesetzt werden.";
+    case "InProgress":
+      return "Phase läuft aktuell. Zeiten können noch aktualisiert werden.";
+    case "Completed":
+      return "Phase ist abgeschlossen. Zeitaktualisierung ist daher nicht mehr verfügbar.";
+    default:
+      return `Status: ${statusLabels[status] ?? status}`;
+  }
+}
+
 const NATIVE_SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
@@ -135,9 +158,40 @@ function cleanName(name: string): string {
   return name;
 }
 
+function groupCodeFromName(name: string): string {
+  const normalized = germanGroupName(name).trim();
+  if (normalized.toLowerCase().startsWith("gruppe ")) {
+    return normalized.slice("Gruppe ".length).trim();
+  }
+  return normalized;
+}
+
+function resolveParticipantName(
+  participantId: string,
+  displayName: string | null | undefined,
+  registrationDisplayNameById?: Map<string, string>,
+): string {
+  const normalizedDisplayName = (displayName ?? "").trim();
+  if (
+    normalizedDisplayName &&
+    !/\bunbekannt\b/i.test(normalizedDisplayName) &&
+    !/\bunknown\b/i.test(normalizedDisplayName)
+  ) {
+    return normalizedDisplayName;
+  }
+
+  const registrationName =
+    registrationDisplayNameById?.get(participantId)?.trim() ?? "";
+  if (registrationName) return registrationName;
+
+  return `Teilnehmer ${participantId}`;
+}
+
 function germanGroupName(name: string): string {
   return name.replace("Group", "Gruppe");
 }
+
+const UNASSIGNED_ID = "__unassigned__";
 
 interface DragData {
   participantId: string;
@@ -148,15 +202,19 @@ interface DragData {
 function DraggableParticipantRow({
   participant,
   sourceGroupId,
+  sourceGroupCode,
   onOpenReassign,
   reassigning,
   isActiveReassign,
+  trailing,
 }: {
   participant: GroupParticipant;
   sourceGroupId: string;
-  onOpenReassign: () => void;
-  reassigning: boolean;
-  isActiveReassign: boolean;
+  sourceGroupCode?: string;
+  onOpenReassign?: () => void;
+  reassigning?: boolean;
+  isActiveReassign?: boolean;
+  trailing?: React.ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `${participant.participantId}::${sourceGroupId}`,
@@ -184,48 +242,86 @@ function DraggableParticipantRow({
           <GripVertical className="h-3.5 w-3.5" />
         </button>
         <span className="truncate">{cleanName(participant.displayName)}</span>
-      </div>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6 shrink-0"
-        disabled={reassigning}
-        onClick={onOpenReassign}
-      >
-        {isActiveReassign ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <ArrowLeftRight className="h-3 w-3" />
+        {sourceGroupCode && (
+          <span className="shrink-0 rounded border border-input bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+            {sourceGroupCode}
+          </span>
         )}
-      </Button>
+      </div>
+      <div className="flex shrink-0 gap-0.5">
+        {trailing}
+        {onOpenReassign && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0"
+            disabled={reassigning}
+            onClick={onOpenReassign}
+          >
+            {isActiveReassign ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <ArrowLeftRight className="h-3 w-3" />
+            )}
+          </Button>
+        )}
+      </div>
     </li>
   );
 }
 
-function DroppableGroupCard({
-  group,
-  activeSrcGroupId,
-  overGroupId,
+function stripDropId(id: string): string {
+  return id.replace("topbar-", "").replace("card-", "");
+}
+
+function DropZoneTarget({
+  groupId,
+  isSrc,
+  isOver,
   children,
 }: {
-  group: GroupResponse;
-  activeSrcGroupId: string | null;
-  overGroupId: string | null;
+  groupId: string;
+  isSrc: boolean;
+  isOver: boolean;
   children: React.ReactNode;
 }) {
-  const { setNodeRef } = useDroppable({ id: group.id });
-  const isOver = overGroupId === group.id;
-  const isSameGroup = activeSrcGroupId === group.id;
+  const { setNodeRef } = useDroppable({ id: `topbar-${groupId}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+        isSrc
+          ? "border-muted-foreground/30 text-muted-foreground"
+          : isOver
+            ? "border-victora-secondary bg-victora-secondary/15 text-victora-secondary"
+            : "border-input bg-background text-foreground hover:bg-muted",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
+function DroppableGroupCard({
+  groupId,
+  isDragging,
+  isOver,
+  children,
+}: {
+  groupId: string;
+  isDragging: boolean;
+  isOver: boolean;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef } = useDroppable({ id: `card-${groupId}` });
   return (
     <div
       ref={setNodeRef}
       className={cn(
         "rounded-lg border p-3 space-y-2 transition-colors",
-        isOver && !isSameGroup &&
-          "border-victora-secondary bg-victora-secondary/10",
-        isOver && isSameGroup &&
-          "border-victora-error bg-victora-error/10",
+        isDragging && !isOver && "border-dashed border-primary/30",
+        isOver && "border-solid border-victora-secondary bg-victora-secondary/5",
       )}
     >
       {children}
@@ -261,6 +357,8 @@ function GroupPhaseCard({
     phase.status !== "Generated" && phase.status !== "Completed";
   const canReset = phase.status !== "Pending";
   const canSchedule = phase.status === "InProgress" || phase.status === "Generated";
+  const canDownloadSchedules = phase.status !== "Pending";
+  const phaseStatusHint = getPhaseStatusHint(phase.status);
   const hasGroups = (phase.groups?.length ?? 0) > 0;
 
   const [expanded, setExpanded] = useState(hasGroups);
@@ -278,10 +376,12 @@ function GroupPhaseCard({
     useSensor(KeyboardSensor),
   );
 
+  const isPending = phase.status === "Pending";
+
   const { data: registrationsData } = useQuery({
     queryKey: ["registrations", tournamentId],
     queryFn: () => getRegistrations(tournamentId),
-    enabled: expanded && hasGroups,
+    enabled: expanded && (hasGroups || isPending),
   });
 
   const { data: phaseVenuesData } = useQuery({
@@ -291,9 +391,11 @@ function GroupPhaseCard({
   const venuesList = phaseVenuesData?.venues ?? [];
   const venueCount = venuesList.length;
 
-  const sortedVenues = [...venuesList].sort(
-    (a, b) => new Date(a.availableFrom).getTime() - new Date(b.availableFrom).getTime(),
-  );
+  const sortedVenues = [...venuesList].sort((a, b) => {
+    const aTime = a.availableFrom ? new Date(a.availableFrom).getTime() : Number.MAX_SAFE_INTEGER;
+    const bTime = b.availableFrom ? new Date(b.availableFrom).getTime() : Number.MAX_SAFE_INTEGER;
+    return aTime - bTime;
+  });
   const firstVenue = sortedVenues[0] ?? null;
   const showRotation = venueCount >= 2;
   const existingRotation = firstVenue?.venueRotation;
@@ -318,8 +420,35 @@ function GroupPhaseCard({
   const [rotationDefaultsApplied, setRotationDefaultsApplied] = useState(
     !!existingRotation,
   );
+  const [downloadingParticipantId, setDownloadingParticipantId] = useState<
+    string | null
+  >(null);
+  const [downloadingGroupId, setDownloadingGroupId] = useState<string | null>(
+    null,
+  );
+  const [downloadingQualifiersPdf, setDownloadingQualifiersPdf] = useState(false);
 
   const groups = phase.groups ?? [];
+  const displayGroups = useMemo(
+    () =>
+      [...groups].sort((a, b) =>
+        a.name.localeCompare(b.name, "de", {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      ),
+    [groups],
+  );
+  const registrationDisplayNameById = useMemo(
+    () =>
+      new Map(
+        (registrationsData?.registrations ?? []).map((registration) => [
+          registration.participantId,
+          registration.participantDisplayName,
+        ]),
+      ),
+    [registrationsData?.registrations],
+  );
   if (
     !rotationDefaultsApplied &&
     groups.length > 0 &&
@@ -389,6 +518,117 @@ function GroupPhaseCard({
     },
   });
 
+  const [newGroupName, setNewGroupName] = useState("");
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const invalidatePhases = () =>
+    queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+
+  const createGroupMutation = useMutation({
+    mutationFn: (name: string) => createGroup(tournamentId, phase.id, name),
+    onSuccess: () => {
+      invalidatePhases();
+      setNewGroupName("");
+      toast.success("Gruppe erstellt");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const renameGroupMutation = useMutation({
+    mutationFn: ({ groupId, name }: { groupId: string; name: string }) =>
+      renameGroup(tournamentId, phase.id, groupId, name),
+    onSuccess: () => {
+      invalidatePhases();
+      setRenamingGroupId(null);
+      toast.success("Gruppe umbenannt");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const deleteGroupMutation = useMutation({
+    mutationFn: (groupId: string) =>
+      deleteGroup(tournamentId, phase.id, groupId),
+    onSuccess: () => {
+      invalidatePhases();
+      toast.success("Gruppe gelöscht");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const addToGroupMutation = useMutation({
+    mutationFn: ({
+      groupId,
+      participantId,
+    }: {
+      groupId: string;
+      participantId: string;
+    }) => addParticipantToGroup(tournamentId, phase.id, groupId, participantId),
+    onSuccess: () => {
+      invalidatePhases();
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const randomAssignMutation = useMutation({
+    mutationFn: async () => {
+      if (groups.length === 0 || unassigned.length === 0) return;
+
+      const shuffledParticipants = [...unassigned];
+      for (let i = shuffledParticipants.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const current = shuffledParticipants[i]!;
+        shuffledParticipants[i] = shuffledParticipants[j]!;
+        shuffledParticipants[j] = current;
+      }
+
+      const shuffledGroupIds = displayGroups.map((group) => group.id);
+      for (let i = shuffledGroupIds.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const current = shuffledGroupIds[i]!;
+        shuffledGroupIds[i] = shuffledGroupIds[j]!;
+        shuffledGroupIds[j] = current;
+      }
+
+      await Promise.all(
+        shuffledParticipants.map((participant, index) => {
+          const groupId = shuffledGroupIds[index % shuffledGroupIds.length]!;
+          return addParticipantToGroup(
+            tournamentId,
+            phase.id,
+            groupId,
+            participant.participantId,
+          );
+        }),
+      );
+    },
+    onSuccess: () => {
+      invalidatePhases();
+      toast.success("Nicht zugeordnete Teilnehmer zufällig verteilt");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const removeFromGroupMutation = useMutation({
+    mutationFn: ({
+      groupId,
+      participantId,
+    }: {
+      groupId: string;
+      participantId: string;
+    }) =>
+      removeParticipantFromGroup(
+        tournamentId,
+        phase.id,
+        groupId,
+        participantId,
+      ),
+    onSuccess: () => {
+      invalidatePhases();
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
   const openReassign = (
     participant: GroupParticipant,
     sourceGroupId: string,
@@ -404,7 +644,8 @@ function GroupPhaseCard({
   };
 
   const handleDragOver = (event: DragOverEvent) => {
-    setOverGroupId(event.over?.id?.toString() ?? null);
+    const rawId = event.over?.id?.toString() ?? null;
+    setOverGroupId(rawId ? stripDropId(rawId) : null);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -413,13 +654,53 @@ function GroupPhaseCard({
     setActiveDragData(null);
     setOverGroupId(null);
     if (!over || !drag) return;
-    const tgtGroupId = over.id.toString();
+    const tgtGroupId = stripDropId(over.id.toString());
     if (tgtGroupId === drag.sourceGroupId) return;
-    reassignMutation.mutate({
-      participantId: drag.participantId,
-      sourceGroupId: drag.sourceGroupId,
-      targetGroupId: tgtGroupId,
-    });
+    if (drag.sourceGroupId === UNASSIGNED_ID) {
+      addToGroupMutation.mutate({
+        groupId: tgtGroupId,
+        participantId: drag.participantId,
+      });
+    } else {
+      reassignMutation.mutate({
+        participantId: drag.participantId,
+        sourceGroupId: drag.sourceGroupId,
+        targetGroupId: tgtGroupId,
+      });
+    }
+  };
+
+  const handleParticipantPdfDownload = async (participantId: string) => {
+    setDownloadingParticipantId(participantId);
+    try {
+      await downloadParticipantSchedulePdf(tournamentId, phase.id, participantId);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    } finally {
+      setDownloadingParticipantId(null);
+    }
+  };
+
+  const handleGroupPdfDownload = async (groupId: string) => {
+    setDownloadingGroupId(groupId);
+    try {
+      await downloadGroupSchedulePdf(tournamentId, phase.id, groupId);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    } finally {
+      setDownloadingGroupId(null);
+    }
+  };
+
+  const handleQualifiersPdfDownload = async () => {
+    setDownloadingQualifiersPdf(true);
+    try {
+      await downloadPhaseQualifiersPdf(tournamentId, phase.id);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    } finally {
+      setDownloadingQualifiersPdf(false);
+    }
   };
 
   return (
@@ -455,6 +736,7 @@ function GroupPhaseCard({
                 </Badge>
               )}
             </div>
+            <p className="text-xs text-muted-foreground">{phaseStatusHint}</p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -470,19 +752,33 @@ function GroupPhaseCard({
               )}
               Generieren
             </Button>
-            {canSchedule && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={canSchedule ? onSchedule : undefined}
+              disabled={!canSchedule || scheduling}
+              title={canSchedule ? "Zeiten der Phase aktualisieren" : phaseStatusHint}
+            >
+              {scheduling ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Zeiten aktualisieren
+            </Button>
+            {canDownloadSchedules && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={onSchedule}
-                disabled={scheduling}
+                onClick={handleQualifiersPdfDownload}
+                disabled={downloadingQualifiersPdf}
               >
-                {scheduling ? (
+                {downloadingQualifiersPdf ? (
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
                 )}
-                Spielplan neu generieren
+                Aufsteiger PDF
               </Button>
             )}
             {canReset && (
@@ -542,106 +838,375 @@ function GroupPhaseCard({
                 onDragOver={handleDragOver}
                 onDragEnd={handleDragEnd}
               >
+                {/* Pending: create group form */}
+                {isPending && (
+                  <form
+                    className="flex items-center gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (newGroupName.trim())
+                        createGroupMutation.mutate(newGroupName.trim());
+                    }}
+                  >
+                    <Input
+                      placeholder="Neue Gruppe…"
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      className="h-8 w-48 text-sm"
+                    />
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      size="sm"
+                      disabled={
+                        !newGroupName.trim() || createGroupMutation.isPending
+                      }
+                    >
+                      {createGroupMutation.isPending ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : (
+                        <Plus className="mr-1 h-3 w-3" />
+                      )}
+                      Gruppe erstellen
+                    </Button>
+                  </form>
+                )}
+
+                {/* Drop zone bar – slides in while dragging */}
+                {activeDragData && (
+                  <div className="flex flex-wrap gap-2 rounded-lg border border-dashed border-primary/30 bg-muted/50 p-2.5 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <span className="flex items-center text-xs font-medium text-muted-foreground mr-1">
+                      {activeDragData.sourceGroupId === UNASSIGNED_ID
+                        ? "Zuweisen zu:"
+                        : "Verschieben nach:"}
+                    </span>
+                    {displayGroups.map((g) => {
+                      const isSrc = g.id === activeDragData.sourceGroupId;
+                      return (
+                        <DropZoneTarget key={g.id} groupId={g.id} isSrc={isSrc} isOver={overGroupId === g.id}>
+                          {germanGroupName(g.name)}
+                        </DropZoneTarget>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Group cards */}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {(phase.groups ?? []).map((group) => (
+                  {displayGroups.map((group) => (
                     <DroppableGroupCard
                       key={group.id}
-                      group={group}
-                      activeSrcGroupId={activeDragData?.sourceGroupId ?? null}
-                      overGroupId={overGroupId}
+                      groupId={group.id}
+                      isDragging={!!activeDragData}
+                      isOver={overGroupId === group.id}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold">
-                          {germanGroupName(group.name)}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {group.participants.length} Teilnehmer
-                        </span>
+                      <div className="flex items-center justify-between gap-1">
+                        {isPending && renamingGroupId === group.id ? (
+                          <form
+                            className="flex flex-1 items-center gap-1"
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              if (renameValue.trim())
+                                renameGroupMutation.mutate({
+                                  groupId: group.id,
+                                  name: renameValue.trim(),
+                                });
+                            }}
+                          >
+                            <Input
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              className="h-7 text-sm"
+                              autoFocus
+                            />
+                            <Button
+                              type="submit"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 shrink-0"
+                              disabled={
+                                !renameValue.trim() ||
+                                renameGroupMutation.isPending
+                              }
+                            >
+                              <Check className="h-3 w-3" />
+                            </Button>
+                          </form>
+                        ) : (
+                          <span className="text-sm font-semibold">
+                            {germanGroupName(group.name)}
+                          </span>
+                        )}
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <span className="mr-1 text-xs text-muted-foreground">
+                            {group.participants.length} Teilnehmer
+                          </span>
+                          {canDownloadSchedules && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => handleGroupPdfDownload(group.id)}
+                              disabled={downloadingGroupId === group.id}
+                              title="Gruppen-Spielplan als PDF"
+                            >
+                              {downloadingGroupId === group.id ? (
+                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                              ) : (
+                                <Download className="mr-1 h-3 w-3" />
+                              )}
+                              PDF
+                            </Button>
+                          )}
+                          {isPending && renamingGroupId !== group.id && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => {
+                                setRenamingGroupId(group.id);
+                                setRenameValue(group.name);
+                              }}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {isPending && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => {
+                                if (
+                                  group.participants.length > 0 &&
+                                  !confirm(
+                                    `${germanGroupName(group.name)} mit ${group.participants.length} Teilnehmern löschen?`,
+                                  )
+                                )
+                                  return;
+                                deleteGroupMutation.mutate(group.id);
+                              }}
+                              disabled={deleteGroupMutation.isPending}
+                            >
+                              <Trash2 className="h-3 w-3 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                       <ul className="space-y-1">
-                        {group.participants.map((p) => (
-                          <DraggableParticipantRow
-                            key={p.participantId}
-                            participant={p}
-                            sourceGroupId={group.id}
-                            onOpenReassign={() =>
-                              openReassign(
-                                p,
-                                group.id,
-                                germanGroupName(group.name),
-                              )
-                            }
-                            reassigning={reassignMutation.isPending}
-                            isActiveReassign={
-                              reassignMutation.isPending &&
-                              reassignTarget?.participant.participantId ===
-                                p.participantId
-                            }
-                          />
-                        ))}
+                        {group.participants.map((p, participantIndex) => {
+                          const baseGroupCode = groupCodeFromName(group.name);
+                          const participantGroupCode = baseGroupCode
+                            ? `${baseGroupCode}${participantIndex + 1}`
+                            : undefined;
+                          const participant = {
+                            ...p,
+                            displayName: resolveParticipantName(
+                              p.participantId,
+                              p.displayName,
+                              registrationDisplayNameById,
+                            ),
+                          };
+
+                          return (
+                            <DraggableParticipantRow
+                              key={p.participantId}
+                              participant={participant}
+                              sourceGroupId={group.id}
+                              sourceGroupCode={participantGroupCode}
+                              onOpenReassign={() =>
+                                openReassign(
+                                  participant,
+                                  group.id,
+                                  germanGroupName(group.name),
+                                )
+                              }
+                              reassigning={reassignMutation.isPending}
+                              isActiveReassign={
+                                reassignMutation.isPending &&
+                                reassignTarget?.participant.participantId ===
+                                  p.participantId
+                              }
+                              trailing={
+                                <>
+                                  {canDownloadSchedules && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-6 px-2 text-xs"
+                                      onClick={() =>
+                                        handleParticipantPdfDownload(p.participantId)
+                                      }
+                                      disabled={
+                                        downloadingParticipantId === p.participantId
+                                      }
+                                      title="Teilnehmer-Spielplan als PDF"
+                                    >
+                                      {downloadingParticipantId === p.participantId ? (
+                                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <Download className="mr-1 h-3 w-3" />
+                                      )}
+                                      PDF
+                                    </Button>
+                                  )}
+                                  {isPending && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      onClick={() =>
+                                        removeFromGroupMutation.mutate({
+                                          groupId: group.id,
+                                          participantId: p.participantId,
+                                        })
+                                      }
+                                      disabled={removeFromGroupMutation.isPending}
+                                    >
+                                      <UserMinus className="h-3 w-3" />
+                                    </Button>
+                                  )}
+                                </>
+                              }
+                            />
+                          );
+                        })}
+                        {group.participants.length === 0 && (
+                          <li className="py-2 text-center text-xs text-muted-foreground">
+                            Teilnehmer hierher ziehen
+                          </li>
+                        )}
                       </ul>
                     </DroppableGroupCard>
                   ))}
                 </div>
 
+                {/* Unassigned participants */}
+                {unassigned.length > 0 && (
+                  <div className="rounded-lg border border-dashed p-4 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-sm font-semibold text-muted-foreground">
+                        Nicht zugeordnet ({unassigned.length})
+                      </h4>
+                      {isPending && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            randomAssignMutation.isPending ||
+                            addToGroupMutation.isPending ||
+                            groups.length === 0
+                          }
+                          onClick={() => randomAssignMutation.mutate()}
+                        >
+                          {randomAssignMutation.isPending && (
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          )}
+                          Zufällig verteilen
+                        </Button>
+                      )}
+                    </div>
+                    <ul className="space-y-1.5">
+                      {unassigned.map((r) => (
+                        <DraggableParticipantRow
+                          key={r.participantId}
+                          participant={{
+                            participantId: r.participantId,
+                            displayName: resolveParticipantName(
+                              r.participantId,
+                              r.participantDisplayName,
+                              registrationDisplayNameById,
+                            ),
+                          }}
+                          sourceGroupId={UNASSIGNED_ID}
+                          sourceGroupCode="-"
+                          trailing={
+                            isPending ? (
+                              <select
+                                className={cn(
+                                  NATIVE_SELECT_CLASS,
+                                  "h-7 w-auto py-0 text-xs",
+                                )}
+                                defaultValue=""
+                                onChange={(e) => {
+                                  if (!e.target.value) return;
+                                  addToGroupMutation.mutate({
+                                    groupId: e.target.value,
+                                    participantId: r.participantId,
+                                  });
+                                  e.target.value = "";
+                                }}
+                                disabled={addToGroupMutation.isPending}
+                              >
+                                <option value="">Zuweisen…</option>
+                                {displayGroups.map((g) => (
+                                  <option key={g.id} value={g.id}>
+                                    {germanGroupName(g.name)}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : undefined
+                          }
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 <DragOverlay>
                   {activeDragData && (
-                    <div className="flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-sm shadow-lg">
-                      <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
-                      {cleanName(activeDragData.displayName)}
+                    <div className="inline-flex w-fit max-w-[24rem] items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-sm shadow-lg">
+                      <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">
+                        {cleanName(activeDragData.displayName)}
+                      </span>
                     </div>
                   )}
                 </DragOverlay>
               </DndContext>
+            ) : isPending ? (
+              <>
+                <form
+                  className="flex items-center gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (newGroupName.trim())
+                      createGroupMutation.mutate(newGroupName.trim());
+                  }}
+                >
+                  <Input
+                    placeholder="Neue Gruppe…"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    className="h-8 w-48 text-sm"
+                  />
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      !newGroupName.trim() || createGroupMutation.isPending
+                    }
+                  >
+                    {createGroupMutation.isPending ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Plus className="mr-1 h-3 w-3" />
+                    )}
+                    Gruppe erstellen
+                  </Button>
+                </form>
+                <p className="text-sm text-muted-foreground">
+                  {unassigned.length > 0
+                    ? `${unassigned.length} registrierte Teilnehmer. Erstelle Gruppen um sie zuzuweisen, oder klicke „Generieren" für automatische Verteilung.`
+                    : `Erstelle Gruppen manuell oder klicke „Generieren" für automatische Verteilung.`}
+                </p>
+              </>
             ) : (
               <p className="text-sm text-muted-foreground">
                 Phase noch nicht generiert.
               </p>
-            )}
-
-            {hasGroups && unassigned.length > 0 && (
-              <div className="rounded-lg border border-dashed p-4 space-y-2">
-                <h4 className="text-sm font-semibold text-muted-foreground">
-                  Nicht zugeordnet ({unassigned.length})
-                </h4>
-                <ul className="space-y-1.5">
-                  {unassigned.map((r) => (
-                    <li
-                      key={r.participantId}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-                        <span className="truncate">
-                          {cleanName(r.participantDisplayName)}
-                        </span>
-                      </div>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span tabIndex={0}>
-                              {/* TODO: backend needs endpoint to add an unassigned participant to a group after phase generation */}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled
-                                className="shrink-0"
-                              >
-                                <Plus className="mr-1 h-3 w-3" />
-                                Hinzufügen
-                              </Button>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent side="left">
-                            Nachträgliches Hinzufügen wird vom Backend noch
-                            nicht unterstützt
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </li>
-                  ))}
-                </ul>
-              </div>
             )}
 
             {showRotation && (
@@ -773,7 +1338,7 @@ function GroupPhaseCard({
                     <SelectValue placeholder="Gruppe auswählen…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(phase.groups ?? [])
+                    {displayGroups
                       .filter((g) => g.id !== reassignTarget.sourceGroupId)
                       .map((g) => (
                         <SelectItem key={g.id} value={g.id}>
@@ -842,13 +1407,27 @@ function EliminationPhaseCard({
     phase.status !== "Generated" && phase.status !== "Completed";
   const canReset = phase.status !== "Pending";
   const canSchedule = phase.status === "InProgress" || phase.status === "Generated";
+  const canDownloadFinalRanking = phase.status !== "Pending";
+  const phaseStatusHint = getPhaseStatusHint(phase.status);
   const [expanded, setExpanded] = useState(false);
+  const [downloadingFinalRanking, setDownloadingFinalRanking] = useState(false);
 
   const { data: phaseVenues } = useQuery({
     queryKey: ["phaseVenues", tournamentId, phase.id],
     queryFn: () => getPhaseVenues(tournamentId, phase.id),
   });
   const venueCount = phaseVenues?.venues.length ?? 0;
+
+  const handleFinalRankingPdfDownload = async () => {
+    setDownloadingFinalRanking(true);
+    try {
+      await downloadFinalRankingPdf(tournamentId, phase.id);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error));
+    } finally {
+      setDownloadingFinalRanking(false);
+    }
+  };
 
   return (
     <Card>
@@ -876,6 +1455,7 @@ function EliminationPhaseCard({
               )
             )}
           </div>
+          <p className="text-xs text-muted-foreground">{phaseStatusHint}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -891,21 +1471,35 @@ function EliminationPhaseCard({
             )}
             Generieren
           </Button>
-          {canSchedule && (
+          {canDownloadFinalRanking && (
             <Button
               variant="outline"
               size="sm"
-              onClick={onSchedule}
-              disabled={scheduling}
+              onClick={handleFinalRankingPdfDownload}
+              disabled={downloadingFinalRanking}
             >
-              {scheduling ? (
+              {downloadingFinalRanking ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : (
-                <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+                <Download className="mr-1.5 h-3.5 w-3.5" />
               )}
-              Spielplan neu generieren
+              Finale Rangliste PDF
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={canSchedule ? onSchedule : undefined}
+            disabled={!canSchedule || scheduling}
+            title={canSchedule ? "Zeiten der Phase aktualisieren" : phaseStatusHint}
+          >
+            {scheduling ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Zeiten aktualisieren
+          </Button>
           {canReset && (
             <Button
               variant="outline"
@@ -1115,10 +1709,10 @@ export function PhasesPage() {
     setSchedulingPhaseId(phaseId);
     setScheduleTarget(null);
     try {
-      await schedulePhase(tournamentId!, phaseId);
+      await retimePhase(tournamentId!, phaseId);
       queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
       queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
-      toast.success("Spielplan wurde neu generiert");
+      toast.success("Zeiten der Phase wurden aktualisiert");
     } catch (error) {
       toast.error(getApiErrorMessage(error));
     } finally {

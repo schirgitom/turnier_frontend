@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Trash2 } from "lucide-react";
-import { getTournament, updateTournament, deleteTournament, updateTournamentStatus } from "@/api/tournaments";
+import { getTournament, updateTournament, updateTournamentVisibility, deleteTournament, updateTournamentStatus } from "@/api/tournaments";
 import { getMatches } from "@/api/matches";
 import { TournamentStatusTimeline } from "@/components/tournament/TournamentStatusTimeline";
 import type { UpdateTournamentRequest } from "@/types/tournament";
@@ -50,6 +50,13 @@ const updateSchema = z.object({
   maxParticipants: z.string().optional(),
   minParticipants: z.string().optional(),
   matchSetsToWinOverride: z
+    .string()
+    .optional()
+    .refine(
+      (v) => !v || (Number.isInteger(Number(v)) && Number(v) >= 1),
+      "Mindestens 1",
+    ),
+  matchPointsToWinOverride: z
     .string()
     .optional()
     .refine(
@@ -143,6 +150,7 @@ export function TournamentSettingsPage() {
           maxParticipants: tournament.maxParticipants?.toString(),
           minParticipants: (tournament.minParticipants ?? 2).toString(),
           matchSetsToWinOverride: tournament.matchSetsToWinOverride?.toString() ?? "",
+          matchPointsToWinOverride: tournament.matchPointsToWinOverride?.toString() ?? "",
           visibility: (tournament.visibility === "Public" ? "Public" : "Private") as "Public" | "Private",
         }
       : undefined,
@@ -179,21 +187,35 @@ export function TournamentSettingsPage() {
           <CardTitle>Turnier bearbeiten</CardTitle>
         </CardHeader>
         <form
-          onSubmit={handleSubmit((data) =>
-            updateMutation.mutate({
-              name: data.name,
-              description: data.description,
-              location: data.location,
-              startDate: data.startDate,
-              endDate: data.endDate,
-              maxParticipants: data.maxParticipants ? Number(data.maxParticipants) : null,
-              minParticipants: data.minParticipants ? Number(data.minParticipants) : null,
-              matchSetsToWinOverride: data.matchSetsToWinOverride
-                ? Number(data.matchSetsToWinOverride)
-                : null,
-              visibility: data.visibility,
-            })
-          )}
+          onSubmit={handleSubmit(async (data) => {
+            const promises: Promise<unknown>[] = [
+              updateMutation.mutateAsync({
+                name: data.name,
+                description: data.description,
+                location: data.location,
+                startDate: data.startDate,
+                endDate: data.endDate,
+                maxParticipants: data.maxParticipants ? Number(data.maxParticipants) : null,
+                minParticipants: data.minParticipants ? Number(data.minParticipants) : null,
+                matchSetsToWinOverride: data.matchSetsToWinOverride
+                  ? Number(data.matchSetsToWinOverride)
+                  : null,
+                matchPointsToWinOverride: data.matchPointsToWinOverride
+                  ? Number(data.matchPointsToWinOverride)
+                  : null,
+                visibility: data.visibility,
+              }),
+              updateTournamentVisibility(tournamentId!, data.visibility),
+            ];
+
+            try {
+              await Promise.all(promises);
+              queryClient.invalidateQueries({ queryKey: ["tournament", tournamentId] });
+              queryClient.invalidateQueries({ queryKey: ["tournaments"] });
+            } catch {
+              // errors are handled by updateMutation.isError
+            }
+          })}
         >
           <CardContent className="space-y-4">
             {updateMutation.isError && (
@@ -266,6 +288,21 @@ export function TournamentSettingsPage() {
               {errors.matchSetsToWinOverride && (
                 <p className="text-sm text-destructive">
                   {errors.matchSetsToWinOverride.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="matchPointsToWinOverride">Punkte pro Satzsieg (optional)</Label>
+              <Input
+                id="matchPointsToWinOverride"
+                type="number"
+                min={1}
+                placeholder="Sport-Default verwenden"
+                {...register("matchPointsToWinOverride")}
+              />
+              {errors.matchPointsToWinOverride && (
+                <p className="text-sm text-destructive">
+                  {errors.matchPointsToWinOverride.message}
                 </p>
               )}
             </div>

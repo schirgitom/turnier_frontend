@@ -128,6 +128,11 @@ const createSchema = z
         (value) => (value === "" || value == null ? null : Number(value)),
         z.number().int("Bitte eine ganze Zahl eingeben").min(1, "Mindestens 1").nullable(),
       ),
+    matchPointsToWinOverride: z
+      .preprocess(
+        (value) => (value === "" || value == null ? null : Number(value)),
+        z.number().int("Bitte eine ganze Zahl eingeben").min(1, "Mindestens 1").nullable(),
+      ),
   })
   .refine(
     (d) => d.maxParticipants >= d.minParticipants,
@@ -229,6 +234,7 @@ export function CreateTournamentPage() {
       advancingPerGroup: null,
       visibility: "Private",
       matchSetsToWinOverride: null,
+      matchPointsToWinOverride: null,
     },
   });
 
@@ -283,6 +289,7 @@ export function CreateTournamentPage() {
       minParticipants: data.minParticipants,
       maxParticipants: data.maxParticipants,
       matchSetsToWinOverride: data.matchSetsToWinOverride,
+      matchPointsToWinOverride: data.matchPointsToWinOverride,
       ...(data.formatType === "GroupAndElimination" && data.advancingPerGroup
         ? { advancingPerGroup: data.advancingPerGroup }
         : {}),
@@ -750,6 +757,22 @@ export function CreateTournamentPage() {
                   {errors.matchSetsToWinOverride && (
                     <p className="text-sm text-destructive">
                       {errors.matchSetsToWinOverride.message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="matchPointsToWinOverride">Punkte pro Satzsieg (optional)</Label>
+                  <Input
+                    id="matchPointsToWinOverride"
+                    type="number"
+                    min={1}
+                    placeholder="Sport-Default verwenden"
+                    {...register("matchPointsToWinOverride")}
+                  />
+                  {errors.matchPointsToWinOverride && (
+                    <p className="text-sm text-destructive">
+                      {errors.matchPointsToWinOverride.message}
                     </p>
                   )}
                 </div>

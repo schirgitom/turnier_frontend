@@ -1,44 +1,13 @@
-import { apiClient } from "./client";
-import type {
-  PublicTournamentDto,
-  ScheduleBoardDto,
-  PublicStandingsDto,
-  PublicBracketDto,
-} from "@/types/display";
+import { publicApiClient } from "./client";
+import type { PublicTournamentDto } from "@/types/display";
 import type { MatchDto } from "@/types/match";
+import type { PhaseStandingsResponse } from "@/types/standings";
 
 export async function getPublicTournament(
   tournamentId: string,
 ): Promise<PublicTournamentDto> {
-  const response = await apiClient.get<PublicTournamentDto>(
-    `/display/${tournamentId}`,
-  );
-  return response.data;
-}
-
-export async function getPublicSchedule(
-  tournamentId: string,
-): Promise<ScheduleBoardDto> {
-  const response = await apiClient.get<ScheduleBoardDto>(
-    `/display/${tournamentId}/schedule`,
-  );
-  return response.data;
-}
-
-export async function getPublicStandings(
-  tournamentId: string,
-): Promise<PublicStandingsDto> {
-  const response = await apiClient.get<PublicStandingsDto>(
-    `/display/${tournamentId}/standings`,
-  );
-  return response.data;
-}
-
-export async function getPublicBracket(
-  tournamentId: string,
-): Promise<PublicBracketDto> {
-  const response = await apiClient.get<PublicBracketDto>(
-    `/display/${tournamentId}/bracket`,
+  const response = await publicApiClient.get<PublicTournamentDto>(
+    `/public/tournaments/${tournamentId}`,
   );
   return response.data;
 }
@@ -46,8 +15,18 @@ export async function getPublicBracket(
 export async function getPublicMatches(
   tournamentId: string,
 ): Promise<MatchDto[]> {
-  const response = await apiClient.get<MatchDto[]>(
-    `/display/${tournamentId}/matches`,
+  const response = await publicApiClient.get<MatchDto[]>(
+    `/public/tournaments/${tournamentId}/matches`,
+  );
+  return response.data;
+}
+
+export async function getPublicStandings(
+  tournamentId: string,
+  phaseId: string,
+): Promise<PhaseStandingsResponse> {
+  const response = await publicApiClient.get<PhaseStandingsResponse>(
+    `/public/tournaments/${tournamentId}/phases/${phaseId}/standings`,
   );
   return response.data;
 }

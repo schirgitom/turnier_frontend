@@ -1,0 +1,20 @@
+services:
+  frontend:
+    image: thomasschirgi/victora-frontend:latest
+    container_name: victora-frontend
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    environment:
+      NODE_ENV: production
+      VITE_API_BASE_URL: "https://victora-api.schischos-lodge.com"
+      VITE_API_PREFIX: "/api"
+      VITE_PUBLIC_API_PREFIX: ""
+      VITE_HUB_URL: "/hubs/tournament"
+      NGINX_API_SCHEME: "https"
+      NGINX_API_HOST: "victora-api.schischos-lodge.com"
+      NGINX_PUBLIC_API_SCHEME: "https"
+      NGINX_PUBLIC_API_HOST: "victora-api.schischos-lodge.com"
+      NGINX_HUB_SCHEME: "https"
+      NGINX_HUB_HOST: "victora-api.schischos-lodge.com"
+

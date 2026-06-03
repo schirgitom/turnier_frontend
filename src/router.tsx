@@ -3,11 +3,14 @@ import { useAuthStore } from "@/store/authStore";
 import { RootLayout } from "@/layouts/RootLayout";
 import { AuthLayout } from "@/layouts/AuthLayout";
 import { AppLayout } from "@/layouts/AppLayout";
+import { PublicLayout } from "@/layouts/PublicLayout";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import { RegisterPage } from "@/pages/auth/RegisterPage";
 import { RegisterOrgPage } from "@/pages/auth/RegisterOrgPage";
 import { InviteAcceptPage } from "@/pages/auth/InviteAcceptPage";
 import { OnboardingPage } from "@/pages/auth/OnboardingPage";
+import { PublicHomePage } from "@/pages/public/PublicHomePage";
+import { PublicTournamentPage } from "@/pages/public/PublicTournamentPage";
 import { TournamentsPage } from "@/pages/tournaments/TournamentsPage";
 import { CreateTournamentPage } from "@/pages/tournaments/CreateTournamentPage";
 import { TournamentLayout } from "@/pages/tournaments/TournamentLayout";
@@ -19,7 +22,6 @@ import { PhasesPage } from "@/pages/tournaments/PhasesPage";
 import { MatchesPage } from "@/pages/tournaments/MatchesPage";
 import { StandingsPage } from "@/pages/tournaments/StandingsPage";
 import { DisplayPage } from "@/pages/display/DisplayPage";
-import { InfoPage } from "@/pages/display/InfoPage";
 import { AccountPage } from "@/pages/account/AccountPage";
 
 function requireAuth() {
@@ -43,6 +45,13 @@ export const router = createBrowserRouter([
     element: <RootLayout />,
     children: [
       {
+        element: <PublicLayout />,
+        children: [
+          { index: true, element: <PublicHomePage /> },
+          { path: "/public/:tournamentId", element: <PublicTournamentPage /> },
+        ],
+      },
+      {
         element: <AuthLayout />,
         loader: redirectIfAuthed,
         children: [
@@ -61,7 +70,6 @@ export const router = createBrowserRouter([
         element: <AppLayout />,
         loader: requireAuth,
         children: [
-          { index: true, loader: () => redirect("/tournaments") },
           { path: "/account", element: <AccountPage /> },
           { path: "/tournaments", element: <TournamentsPage /> },
           { path: "/tournaments/new", element: <CreateTournamentPage /> },
@@ -87,7 +95,7 @@ export const router = createBrowserRouter([
       },
       {
         path: "/info/:tournamentId",
-        element: <InfoPage />,
+        element: <PublicTournamentPage />,
       },
     ],
   },

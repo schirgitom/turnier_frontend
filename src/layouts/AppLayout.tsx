@@ -55,8 +55,14 @@ export function AppLayout() {
   return (
     <div className="flex h-screen">
       <aside className="flex w-64 flex-col border-r border-sidebar-border bg-sidebar-background text-sidebar-foreground">
-        <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-          <img src="/logo.png" alt="Victora" style={{ height: 32, width: "auto" }} />
+        <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/95 p-1.5 shadow-sm ring-1 ring-white/15">
+            <img
+              src="/logo.png"
+              alt="Victora"
+              className="h-full w-full object-contain"
+            />
+          </div>
           {activeOrg && (
             <span className="ml-auto text-xs text-[rgba(255,255,255,0.4)]">
               {activeOrg.organizationName}

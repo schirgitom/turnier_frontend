@@ -24,7 +24,7 @@ import {
   removePhaseVenue,
 } from "@/api/phaseVenues";
 import { getPhases } from "@/api/phases";
-import { schedulePhase } from "@/api/scheduling";
+import { retimePhase } from "@/api/scheduling";
 import { getApiErrorMessage } from "@/api/client";
 import { VenueCard } from "@/components/venues/VenueCard";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { PhaseVenueDto, AddPhaseVenueRequest } from "@/types/phaseVenue";
 import type { VenueListItemDto } from "@/types/venue";
+import { isGroupPhase } from "@/types/phase";
 import type { PhaseResponse } from "@/types/phase";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -72,7 +73,7 @@ const SELECT_CLASS =
 
 const configSchema = z.object({
   venueId: z.string().min(1, "Spielstätte ist erforderlich"),
-  availableFrom: z.string().min(1, "Startzeit ist erforderlich"),
+  availableFrom: z.string(),
   matchDurationMinutes: z.coerce.number().int().min(5, "Mindestens 5 Minuten"),
   breakBetweenMatchesMinutes: z.coerce.number().int().min(0),
   schedulingStrategy: z.enum(["EarliestFirst", "Distributed"]),
@@ -85,7 +86,7 @@ function makeDefaults(existing: PhaseVenueDto | null): ConfigForm {
   if (existing) {
     return {
       venueId: existing.venueId,
-      availableFrom: existing.availableFrom.slice(0, 16),
+      availableFrom: existing.availableFrom ? existing.availableFrom.slice(0, 16) : "",
       matchDurationMinutes: existing.matchDurationMinutes,
       breakBetweenMatchesMinutes: existing.breakBetweenMatchesMinutes,
       schedulingStrategy: existing.schedulingStrategy,
@@ -109,6 +110,7 @@ interface PhaseVenueDialogProps {
   onClose: () => void;
   tournamentId: string;
   phaseId: string;
+  phase: PhaseResponse;
   existing: PhaseVenueDto | null;
   venues: VenueListItemDto[];
   onSaved?: () => void;
@@ -119,11 +121,14 @@ function PhaseVenueDialog({
   onClose,
   tournamentId,
   phaseId,
+  phase,
   existing,
   venues,
   onSaved,
 }: PhaseVenueDialogProps) {
   const queryClient = useQueryClient();
+  const isEliminationPhase = !isGroupPhase(phase);
+  const [needsManualStartFallback, setNeedsManualStartFallback] = useState(false);
 
   const form = useForm<ConfigForm>({
     resolver: zodResolver(configSchema),
@@ -163,16 +168,39 @@ function PhaseVenueDialog({
       onClose();
       onSaved?.();
     },
-    onError: (e) => toast.error(getApiErrorMessage(e)),
+    onError: (e) => {
+      const message = getApiErrorMessage(e);
+      toast.error(message);
+
+      if (
+        isEliminationPhase &&
+        form.getValues("availableFrom").trim().length === 0 &&
+        /(vorrunde|gruppenphase|endzeit|end time|availablefrom|startzeit|berechnet|compute)/i.test(message)
+      ) {
+        setNeedsManualStartFallback(true);
+      }
+    },
   });
 
   const handleSubmit = form.handleSubmit((data) => {
+    const availableFromRaw = data.availableFrom.trim();
+
+    if (!isEliminationPhase && availableFromRaw.length === 0) {
+      form.setError("availableFrom", { message: "Startzeit ist erforderlich" });
+      return;
+    }
+
+    const normalizedAvailableFrom =
+      availableFromRaw.length === 16
+        ? `${availableFromRaw}:00`
+        : availableFromRaw;
+
     mutation.mutate({
       ...data,
-      availableFrom:
-        data.availableFrom.length === 16
-          ? data.availableFrom + ":00"
-          : data.availableFrom,
+      availableFrom: isEliminationPhase
+        ? (normalizedAvailableFrom || null)
+        : normalizedAvailableFrom,
+      venueRotation: existing?.venueRotation ?? null,
     });
   });
 
@@ -243,12 +271,31 @@ function PhaseVenueDialog({
 
           {/* Available from */}
           <div className="space-y-2">
-            <Label htmlFor="pv-availableFrom">Verfügbar ab</Label>
+            <Label htmlFor="pv-availableFrom">
+              Verfügbar ab {isEliminationPhase ? "(optional)" : "*"}
+            </Label>
             <Input
               id="pv-availableFrom"
               type="datetime-local"
-              {...form.register("availableFrom")}
+              {...form.register("availableFrom", {
+                onChange: () => {
+                  if (needsManualStartFallback) {
+                    setNeedsManualStartFallback(false);
+                  }
+                },
+              })}
             />
+            {isEliminationPhase && (
+              <p className="text-xs text-muted-foreground">
+                Automatisch: nach dem letzten Vorrundenspiel.
+              </p>
+            )}
+            {needsManualStartFallback && (
+              <div className="rounded-md border border-[#F3A83B] bg-[#F3A83B]/10 px-3 py-2 text-sm text-[#57194B]">
+                Automatische Startzeit konnte nicht berechnet werden. Bitte manuelle
+                Startzeit eingeben und erneut speichern.
+              </div>
+            )}
             {form.formState.errors.availableFrom && (
               <p className="text-sm text-destructive">
                 {form.formState.errors.availableFrom.message}
@@ -433,7 +480,11 @@ function PhaseVenueCard({
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
         <dt className="text-muted-foreground">Verfügbar ab</dt>
-        <dd>{format(new Date(venue.availableFrom), "dd.MM.yyyy HH:mm")}</dd>
+        <dd>
+          {venue.availableFrom
+            ? format(new Date(venue.availableFrom), "dd.MM.yyyy HH:mm")
+            : "Automatisch: nach dem letzten Vorrundenspiel"}
+        </dd>
 
         <dt className="text-muted-foreground">Spieldauer</dt>
         <dd>
@@ -482,10 +533,10 @@ function PhaseVenueSection({
     setReschedulePromptOpen(false);
     setRescheduling(true);
     try {
-      await schedulePhase(tournamentId, phase.id);
+      await retimePhase(tournamentId, phase.id);
       queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
       queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
-      toast.success("Spielplan neu generiert");
+      toast.success("Zeiten wurden aktualisiert");
     } catch (e) {
       toast.error(getApiErrorMessage(e));
     } finally {
@@ -587,6 +638,7 @@ function PhaseVenueSection({
         onClose={() => setDialogOpen(false)}
         tournamentId={tournamentId}
         phaseId={phase.id}
+        phase={phase}
         existing={editing}
         venues={venues}
         onSaved={promptReschedule}
@@ -601,7 +653,7 @@ function PhaseVenueSection({
             <DialogTitle>Spielplan neu generieren?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Spielstätte gespeichert. Spielplan jetzt neu generieren?
+            Spielstätte gespeichert. Zeiten jetzt neu berechnen?
           </p>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
@@ -614,7 +666,7 @@ function PhaseVenueSection({
               {rescheduling && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              Ja, neu generieren
+              Ja, Zeiten aktualisieren
             </Button>
           </DialogFooter>
         </DialogContent>

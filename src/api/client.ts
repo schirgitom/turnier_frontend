@@ -1,7 +1,10 @@
 import axios from "axios";
 import { useAuthStore } from "@/store/authStore";
+import { getAppConfig } from "@/lib/runtimeConfig";
 
-const apiPrefix = import.meta.env.VITE_API_PREFIX || "/api";
+const appConfig = getAppConfig();
+const apiPrefix = appConfig.apiPrefix;
+const publicApiPrefix = appConfig.publicApiPrefix;
 
 export const apiClient = axios.create({
   baseURL: apiPrefix,
@@ -92,6 +95,16 @@ apiClient.interceptors.response.use(
     }
   },
 );
+
+/**
+ * Unauthenticated client for public endpoints (no /api prefix, no Bearer token).
+ */
+export const publicApiClient = axios.create({
+  baseURL: publicApiPrefix,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
 
 export function getApiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {

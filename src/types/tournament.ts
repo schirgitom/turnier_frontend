@@ -41,6 +41,7 @@ export interface TournamentDto {
   seeding: boolean;
   visibility: string;
   matchSetsToWinOverride: number | null;
+  matchPointsToWinOverride?: number | null;
   sport?: SportDto;
   createdAt: string;
   updatedAt: string;
@@ -62,6 +63,7 @@ export interface CreateTournamentRequest {
   seeding: boolean;
   visibility: string;
   matchSetsToWinOverride?: number | null;
+  matchPointsToWinOverride?: number | null;
 }
 
 export interface UpdateTournamentRequest {
@@ -78,4 +80,5 @@ export interface UpdateTournamentRequest {
   seeding?: boolean;
   visibility?: string;
   matchSetsToWinOverride?: number | null;
+  matchPointsToWinOverride?: number | null;
 }

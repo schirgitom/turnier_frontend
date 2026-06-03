@@ -20,7 +20,7 @@ export interface PhaseVenueDto {
   phaseId: string;
   venueId: string;
   venueName: string;
-  availableFrom: string;
+  availableFrom: string | null;
   matchDurationMinutes: number;
   breakBetweenMatchesMinutes: number;
   schedulingStrategy: "EarliestFirst" | "Distributed";
@@ -39,7 +39,7 @@ export interface PhaseVenueListResponse {
 
 export interface AddPhaseVenueRequest {
   venueId: string;
-  availableFrom: string;
+  availableFrom: string | null;
   matchDurationMinutes: number;
   breakBetweenMatchesMinutes: number;
   schedulingStrategy: "EarliestFirst" | "Distributed";

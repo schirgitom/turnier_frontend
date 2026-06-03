@@ -34,6 +34,8 @@ export interface MatchDto {
   scheduledTime?: string | null;
   courtId: string | null;
   courtName: string | null;
+  venueId?: string | null;
+  venueName?: string | null;
   startedAt: string | null;
   completedAt: string | null;
   /** Flattened score fields returned by the display endpoint */
@@ -52,5 +54,6 @@ export interface SetScore {
 
 export interface RecordMatchResultRequest {
   setsToWinOverride?: number;
+  pointsToWinOverride?: number;
   sets: SetScore[];
 }
