@@ -1,3 +1,5 @@
+import type { PaschenPhaseSummaryResponse } from "./paschen";
+
 export interface AddGroupPhaseRequest {
   phaseOrder: number;
   name: string;
@@ -55,10 +57,25 @@ export interface EliminationPhaseResponse {
   completedMatches?: number;
 }
 
-export type PhaseResponse = GroupPhaseResponse | EliminationPhaseResponse;
+export type PhaseResponse =
+  | GroupPhaseResponse
+  | EliminationPhaseResponse
+  | PaschenPhaseSummaryResponse;
+
+// Typ-Erkennung in der polymorphen Liste über die diskriminierenden Felder:
+// treeCount ⇒ Paschen · numberOfGroups ⇒ Gruppe · bracketSize ⇒ K.O.
+// Reihenfolge beachten: isPaschenPhase muss vor dem K.O.-Fallback geprüft werden.
+
+export function isPaschenPhase(p: PhaseResponse): p is PaschenPhaseSummaryResponse {
+  return "treeCount" in p;
+}
 
 export function isGroupPhase(p: PhaseResponse): p is GroupPhaseResponse {
   return "numberOfGroups" in p;
+}
+
+export function isEliminationPhase(p: PhaseResponse): p is EliminationPhaseResponse {
+  return "bracketSize" in p;
 }
 
 export interface TournamentPhasesResponse {
@@ -78,7 +95,7 @@ export interface GenerateMatchesResponse {
 }
 
 export interface ReorderPhasesRequest {
-  phaseIds: string[];
+  orderedPhaseIds: string[];
 }
 
 export interface ReassignParticipantRequest {

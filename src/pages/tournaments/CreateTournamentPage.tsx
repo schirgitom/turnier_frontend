@@ -61,6 +61,7 @@ const SPORTS = [
   { code: "football",     label: "Fußball" },
   { code: "basketball",   label: "Basketball" },
   { code: "handball",     label: "Handball" },
+  { code: "paschen",      label: "Paschen" },
   { code: "other",        label: "Sonstiges" },
 ];
 
@@ -115,7 +116,11 @@ const createSchema = z
     endDate: z.string(),
     minParticipants: z.coerce.number().min(2, "Mindestens 2 Teilnehmer erforderlich"),
     maxParticipants: z.coerce.number().min(2, "Mindestens 2 Teilnehmer erforderlich"),
-    sportCode: z.string().min(1, "Sportart ist erforderlich"),
+    maxStartsPerPerson: z.coerce
+      .number()
+      .int("Bitte eine ganze Zahl eingeben")
+      .min(1, "Mindestens 1 Start pro Person"),
+    sportCode: z.string().min(1, "Spiel ist erforderlich"),
     participantType: z.enum(["Single", "Double", "Team"], {
       errorMap: () => ({ message: "Bitte Teilnehmertyp wählen" }),
     }),
@@ -228,6 +233,7 @@ export function CreateTournamentPage() {
       endDate: "",
       minParticipants: 2,
       maxParticipants: 32,
+      maxStartsPerPerson: 3,
       seeding: false,
       sportCode: "",
       formatType: "",
@@ -274,13 +280,22 @@ export function CreateTournamentPage() {
   const goBack = () => setStep((s) => s - 1);
 
   const onSubmit = (data: CreateForm) => {
+    // Schutz gegen vorzeitiges Absenden (z.B. via Enter-Taste in einem Eingabefeld):
+    // Nur auf dem letzten Schritt wird das Turnier tatsächlich erstellt.
+    if (step < 3) {
+      void goNext();
+      return;
+    }
     const payload: CreateTournamentRequest = {
       name: data.name,
       slug: data.slug || toSlug(data.name),
       description: data.description || undefined,
       location: data.location,
+      // Das Backend erwartet für startDate/endDate ein reines Datum
+      // (format: "date" -> "YYYY-MM-DD"). Die Uhrzeit darf hier nicht
+      // angehängt werden, sonst schlägt die Deserialisierung fehl.
       startDate: data.startDate,
-      endDate: data.endDate,
+      endDate: data.multiDay ? data.endDate : data.startDate,
       sportCode: data.sportCode,
       participantType: data.participantType,
       formatType: data.formatType,
@@ -288,6 +303,7 @@ export function CreateTournamentPage() {
       visibility: data.visibility,
       minParticipants: data.minParticipants,
       maxParticipants: data.maxParticipants,
+      maxStartsPerPerson: data.maxStartsPerPerson,
       matchSetsToWinOverride: data.matchSetsToWinOverride,
       matchPointsToWinOverride: data.matchPointsToWinOverride,
       ...(data.formatType === "GroupAndElimination" && data.advancingPerGroup
@@ -318,18 +334,18 @@ export function CreateTournamentPage() {
               <CardHeader>
                 <CardTitle>Basics</CardTitle>
                 <CardDescription>
-                  Wähle Sportart und gib dem Turnier einen Namen.
+                  Wähle das Spiel und gib dem Turnier einen Namen.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Sportart</Label>
+                  <Label>Spiel</Label>
                   <Select
                     value={sportCode}
                     onValueChange={(v) => setValue("sportCode", v)}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Sportart auswählen" />
+                      <SelectValue placeholder="Spiel auswählen" />
                     </SelectTrigger>
                     <SelectContent>
                       {SPORTS.map((s) => (
@@ -505,6 +521,25 @@ export function CreateTournamentPage() {
                       </p>
                     )}
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="maxStartsPerPerson">Max. Starts pro Person</Label>
+                  <Input
+                    id="maxStartsPerPerson"
+                    type="number"
+                    min={1}
+                    {...register("maxStartsPerPerson")}
+                  />
+                  {errors.maxStartsPerPerson && (
+                    <p className="text-sm text-destructive">
+                      {errors.maxStartsPerPerson.message}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Wie oft dieselbe Person in diesem Turnier starten darf
+                    (mehrere Karten). Standard: 3.
+                  </p>
                 </div>
               </CardContent>
             </>
@@ -751,7 +786,7 @@ export function CreateTournamentPage() {
                     id="matchSetsToWinOverride"
                     type="number"
                     min={1}
-                    placeholder="Sport-Default verwenden"
+                    placeholder="Standard verwenden"
                     {...register("matchSetsToWinOverride")}
                   />
                   {errors.matchSetsToWinOverride && (
@@ -767,7 +802,7 @@ export function CreateTournamentPage() {
                     id="matchPointsToWinOverride"
                     type="number"
                     min={1}
-                    placeholder="Sport-Default verwenden"
+                    placeholder="Standard verwenden"
                     {...register("matchPointsToWinOverride")}
                   />
                   {errors.matchPointsToWinOverride && (

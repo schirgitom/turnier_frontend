@@ -37,8 +37,7 @@ export interface PhaseVenueListResponse {
   totalActiveCourts: number;
 }
 
-export interface AddPhaseVenueRequest {
-  venueId: string;
+interface PhaseVenueRequestFields {
   availableFrom: string | null;
   matchDurationMinutes: number;
   breakBetweenMatchesMinutes: number;
@@ -46,3 +45,9 @@ export interface AddPhaseVenueRequest {
   activeCourtIds: string[];
   venueRotation?: VenueRotationConfig | null;
 }
+
+export interface AddPhaseVenueRequest extends PhaseVenueRequestFields {
+  venueId: string;
+}
+
+export type UpdatePhaseVenueRequest = PhaseVenueRequestFields;

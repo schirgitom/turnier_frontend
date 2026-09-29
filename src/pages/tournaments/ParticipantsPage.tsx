@@ -21,6 +21,7 @@ import {
   UserMinus,
   LogIn,
   Wand2,
+  Settings2,
 } from "lucide-react";
 import {
   getRegistrations,
@@ -29,12 +30,21 @@ import {
   removeRegistration,
   checkInRegistration,
   withdrawRegistration,
+  bulkCreateRegistration,
 } from "@/api/registrations";
 import { getParticipants, getParticipant, createParticipant } from "@/api/participants";
-import type { ParticipantDto } from "@/types/participant";
+import { updateTournament } from "@/api/tournaments";
+import type { ParticipantDto, ParticipantListItem } from "@/types/participant";
 import { EditParticipantDialog } from "@/components/participants/EditParticipantDialog";
 import { getApiErrorMessage } from "@/api/client";
 import type { TournamentDto } from "@/types/tournament";
+import {
+  MAX_STARTS_LIMIT,
+  DEFAULT_MAX_STARTS_PER_PERSON,
+  buildStartNumbers,
+  countActiveStartsByUser,
+  personKey,
+} from "@/lib/multiStart";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,6 +71,13 @@ const createSchema = z.object({
   firstName: z.string().min(1, "Vorname ist erforderlich"),
   lastName: z.string().min(1, "Nachname ist erforderlich"),
   dateOfBirth: z.string().optional(),
+  phoneNumber: z.string().optional(),
+  notes: z.string().optional(),
+  starts: z.coerce
+    .number()
+    .int()
+    .min(1, "Mindestens 1 Start")
+    .max(MAX_STARTS_LIMIT, `Maximal ${MAX_STARTS_LIMIT} Starts`),
 });
 
 type CreateForm = z.infer<typeof createSchema>;
@@ -120,10 +137,26 @@ export function ParticipantsPage() {
   const [editParticipant, setEditParticipant] = useState<ParticipantDto | null>(null);
   const [fetchingEditId, setFetchingEditId] = useState<string | null>(null);
 
+  // Obergrenze an Starts pro Person – wird im Backend am Turnier gespeichert
+  // (tournament.maxStartsPerPerson). Lokaler State nur für die Bearbeitung im
+  // Einstellungs-Dialog; wird beim Speichern per updateTournament persistiert.
+  const tournamentMaxStarts =
+    tournament?.maxStartsPerPerson ?? DEFAULT_MAX_STARTS_PER_PERSON;
+  const maxStarts = tournamentMaxStarts;
+  const [settingsMaxStarts, setSettingsMaxStarts] = useState<number>(
+    tournamentMaxStarts,
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   useEffect(() => {
     const id = setTimeout(() => setDebouncedPoolSearch(poolSearch), 300);
     return () => clearTimeout(id);
   }, [poolSearch]);
+
+  // Beim Öffnen des Dialogs den aktuellen Turnierwert übernehmen.
+  useEffect(() => {
+    if (settingsOpen) setSettingsMaxStarts(tournamentMaxStarts);
+  }, [settingsOpen, tournamentMaxStarts]);
 
   // --- Queries ---
   const { data, isLoading } = useQuery({
@@ -134,6 +167,28 @@ export function ParticipantsPage() {
 
   const registrations = data?.registrations ?? [];
   const activeCount = registrations.filter((r) => r.status !== "Withdrawn").length;
+
+  // Mehrere Starts pro Person: participantId → Start-Nummer (nur für Personen
+  // mit ≥ 2 Starts). Damit wird "(Start N)" im Roster angezeigt.
+  const startNumbers = useMemo(
+    () => buildStartNumbers(registrations),
+    [registrations],
+  );
+
+  // Anzahl eindeutiger Personen. Personen werden über personKey identifiziert
+  // (userId oder – ohne Account – normalisierter Anzeigename).
+  const distinctPersonCount = useMemo(() => {
+    const persons = new Set<string>();
+    for (const r of registrations) {
+      if (r.status === "Withdrawn") continue;
+      const key = personKey({
+        userId: r.userId,
+        displayName: r.participantDisplayName,
+      });
+      persons.add(key ?? `pid:${r.participantId}`);
+    }
+    return persons.size;
+  }, [registrations]);
 
   const { data: poolData, isLoading: poolLoading } = useQuery({
     queryKey: ["participants", "pool", debouncedPoolSearch],
@@ -151,9 +206,87 @@ export function ParticipantsPage() {
     [registrations],
   );
 
+  // Aktive Starts je Person. Wir schlüsseln BEWUSST doppelt:
+  //  - über personKey (userId bevorzugt, sonst Name) für den Normalfall.
+  //  - zusätzlich rein über den normalisierten Namen, um verwaiste Karten
+  //    derselben Person zusammenzuführen, selbst wenn deren userId-Zustand
+  //    abweicht (mal gesetzt, mal null).
+  const activeStartsByUser = useMemo(
+    () =>
+      countActiveStartsByUser(
+        registrations.map((r) => ({
+          participantId: r.participantId,
+          userId: r.userId,
+          registeredAt: r.registeredAt,
+          status: r.status,
+          displayName: r.participantDisplayName,
+        })),
+      ),
+    [registrations],
+  );
+
+  // Aktive Starts rein nach normalisiertem Namen (Fallback-Zusammenführung).
+  const activeStartsByName = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of registrations) {
+      if (r.status === "Withdrawn") continue;
+      const name = r.participantDisplayName?.trim().toLowerCase();
+      if (!name) continue;
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return counts;
+  }, [registrations]);
+
+  // Pool-Einträge mit Info, wie viele Starts die Person schon im Turnier hat und
+  // ob noch ein weiterer Start erlaubt ist (unter der konfigurierten Grenze).
+  const poolEntries = useMemo(() => {
+    // Dieselbe Person kann mehrere participant-Karten haben (unterschiedliche id,
+    // teils mit/ohne userId, gleicher Name). Das Backend setzt bei mehreren Starts
+    // KEINE gemeinsame userId und löscht beim Entfernen einer Registrierung den
+    // Participant nicht – es entstehen also verwaiste Karten. Für die Auswahlliste
+    // führen wir daher robust über den normalisierten Namen zusammen.
+    const groups = new Map<string, ParticipantListItem[]>();
+    const standalone: ParticipantListItem[] = [];
+    for (const p of poolData?.items ?? []) {
+      const name = p.displayName?.trim().toLowerCase();
+      if (!name) {
+        standalone.push(p); // ohne Namen keine Zusammenführung möglich
+        continue;
+      }
+      const bucket = groups.get(name);
+      if (bucket) bucket.push(p);
+      else groups.set(name, [p]);
+    }
+
+    const grouped = Array.from(groups.values()).map((bucket) => {
+      // Repräsentant: bevorzugt eine Karte mit userId (stabiler Schlüssel).
+      const representative = bucket.find((p) => p.userId) ?? bucket[0]!;
+      return { representative };
+    });
+
+    const representatives = [
+      ...grouped.map((g) => g.representative),
+      ...standalone,
+    ];
+
+    return representatives.map((p) => {
+      const nameKey = p.displayName?.trim().toLowerCase();
+      const key = personKey({ userId: p.userId, displayName: p.displayName });
+      // Starts zuerst über personKey, dann über den Namen (deckt verwaiste
+      // Karten mit abweichendem userId-Zustand ab), sonst participantId.
+      const currentStarts =
+        (key ? activeStartsByUser.get(key) : undefined) ??
+        (nameKey ? activeStartsByName.get(nameKey) : undefined) ??
+        (registeredIds.has(p.id) ? 1 : 0);
+      const canAddMore = currentStarts < maxStarts;
+      return { ...p, currentStarts, canAddMore };
+    });
+  }, [poolData, activeStartsByUser, activeStartsByName, registeredIds, maxStarts]);
+
+  // Auswählbar sind Personen, die noch mindestens einen weiteren Start dürfen.
   const availablePool = useMemo(
-    () => (poolData?.items ?? []).filter((p) => !registeredIds.has(p.id)),
-    [poolData, registeredIds],
+    () => poolEntries.filter((p) => p.canAddMore),
+    [poolEntries],
   );
 
   // --- Sorting ---
@@ -208,42 +341,129 @@ export function ParticipantsPage() {
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
+  // Persistiert die maximale Anzahl Starts pro Person am Turnier (Backend).
+  const maxStartsMutation = useMutation({
+    mutationFn: (value: number) =>
+      updateTournament(tournamentId!, { maxStartsPerPerson: value }),
+    onSuccess: (_data, value) => {
+      queryClient.invalidateQueries({ queryKey: ["tournament", tournamentId] });
+      queryClient.invalidateQueries({ queryKey: ["tournaments"] });
+      setSettingsOpen(false);
+      toast.success(`Maximale Starts: ${value}`);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
   const addBulkMutation = useMutation({
-    mutationFn: (ids: string[]) => bulkRegister(tournamentId!, ids),
-    onSuccess: (_data, ids) => {
+    mutationFn: async (
+      entries: Array<{
+        id: string;
+        userId: string | null;
+        currentStarts: number;
+      }>,
+    ) => {
+      // Aufteilen in:
+      //  - "erste Anmeldung": Person noch nicht im Turnier → vorhandene
+      //    participantId direkt registrieren (bulkRegister).
+      //  - "weiterer Start": Person schon dabei → NEUEN Participant mit
+      //    derselben userId anlegen und registrieren (eigene participantId).
+      const firstTimeIds: string[] = [];
+      const extraStartFor: Array<{ id: string; userId: string | null }> = [];
+      for (const e of entries) {
+        if (e.currentStarts > 0) extraStartFor.push({ id: e.id, userId: e.userId });
+        else firstTimeIds.push(e.id);
+      }
+
+      let count = 0;
+
+      if (firstTimeIds.length > 0) {
+        await bulkRegister(tournamentId!, firstTimeIds);
+        count += firstTimeIds.length;
+      }
+
+      // Für jeden weiteren Start die Stammdaten der Person laden und einen
+      // neuen Participant mit derselben userId erzeugen, dann registrieren.
+      for (const entry of extraStartFor) {
+        const source = await getParticipant(entry.id);
+        const sharedUserId = entry.userId ?? source.userId ?? crypto.randomUUID();
+        const created = await createParticipant(
+          tournament?.participantType ?? "Single",
+          {
+            firstName: source.firstName,
+            lastName: source.lastName,
+            dateOfBirth: source.dateOfBirth || undefined,
+            phoneNumber: source.phoneNumber || undefined,
+            notes: source.notes || undefined,
+            userId: sharedUserId,
+          },
+        );
+        await registerParticipant(tournamentId!, created.id);
+        count += 1;
+      }
+
+      return { count };
+    },
+    onSuccess: ({ count }) => {
       queryClient.invalidateQueries({ queryKey: regQueryKey });
       queryClient.invalidateQueries({ queryKey: ["participants"] });
       setPoolSelected(new Set());
       setAddDialogOpen(false);
-      toast.success(`${ids.length} Teilnehmer registriert`);
+      toast.success(`${count} Start${count === 1 ? "" : "s"} hinzugefügt`);
     },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
   // --- Create new + auto-register ---
   const createForm = useForm<CreateForm>({
     resolver: zodResolver(createSchema),
+    defaultValues: {
+      firstName: "",
+      lastName: "",
+      dateOfBirth: "",
+      phoneNumber: "",
+      notes: "",
+      starts: 1,
+    },
   });
 
   const createAndRegisterMutation = useMutation({
     mutationFn: async (data: CreateForm) => {
-      const created = await createParticipant(
-        tournament?.participantType ?? "Single",
-        {
-          firstName: data.firstName,
-          lastName: data.lastName,
-          dateOfBirth: data.dateOfBirth || undefined,
-        },
+      // Neuer Ein-Schritt-Flow: Person (ohne Account) anlegen und alle Starts
+      // transaktional registrieren. Die 3-Starts-Grenze prüft das Backend; wir
+      // klemmen clientseitig zusätzlich für bessere UX.
+      const startCount = Math.min(
+        maxStarts,
+        Math.max(1, data.starts),
       );
-      await registerParticipant(tournamentId!, created.id);
-      return created;
+      const result = await bulkCreateRegistration(tournamentId!, {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        startCount,
+        dateOfBirth: data.dateOfBirth || undefined,
+        phoneNumber: data.phoneNumber || undefined,
+        notes: data.notes || undefined,
+      });
+      return { count: result.starts.length };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: regQueryKey });
       queryClient.invalidateQueries({ queryKey: ["participants"] });
       setCreateDialogOpen(false);
-      createForm.reset();
-      toast.success("Teilnehmer erstellt und registriert");
+      createForm.reset({
+        firstName: "",
+        lastName: "",
+        dateOfBirth: "",
+        phoneNumber: "",
+        notes: "",
+        starts: 1,
+      });
+      toast.success(
+        result.count > 1
+          ? `${result.count} Starts erstellt und registriert`
+          : "Teilnehmer erstellt und registriert",
+      );
     },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
   // --- Generate participants ---
@@ -306,12 +526,20 @@ export function ParticipantsPage() {
 
   const handleAddSelected = () => {
     if (poolSelected.size === 0) return;
-    addBulkMutation.mutate([...poolSelected]);
+    const entries = poolEntries
+      .filter((p) => poolSelected.has(p.id))
+      .map((p) => ({ id: p.id, userId: p.userId, currentStarts: p.currentStarts }));
+    addBulkMutation.mutate(entries);
   };
 
   const handleAddAll = () => {
     if (availablePool.length === 0) return;
-    addBulkMutation.mutate(availablePool.map((p) => p.id));
+    const entries = availablePool.map((p) => ({
+      id: p.id,
+      userId: p.userId,
+      currentStarts: p.currentStarts,
+    }));
+    addBulkMutation.mutate(entries);
   };
 
   if (isLoading) {
@@ -339,13 +567,24 @@ export function ParticipantsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Teilnehmer ({activeCount})</h2>
-          {data && data.totalCheckedIn > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {data.totalCheckedIn} eingecheckt
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            {distinctPersonCount === activeCount
+              ? `${distinctPersonCount} Personen`
+              : `${distinctPersonCount} Personen · ${activeCount} Starts`}
+            {data && data.totalCheckedIn > 0
+              ? ` · ${data.totalCheckedIn} eingecheckt`
+              : ""}
+          </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            title="Start-Einstellungen"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings2 className="h-4 w-4" />
+          </Button>
           <Button
             variant="outline"
             onClick={() => {
@@ -421,7 +660,17 @@ export function ParticipantsPage() {
                   className={cn(isWithdrawn && "opacity-50")}
                 >
                   <TableCell className="font-medium">
-                    {reg.participantDisplayName}
+                    <div className="flex items-center gap-2">
+                      <span>{reg.participantDisplayName}</span>
+                      {startNumbers.has(reg.participantId) && (
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 text-[10px] font-normal text-muted-foreground"
+                        >
+                          Start {startNumbers.get(reg.participantId)}
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     {cfg ? (
@@ -602,6 +851,14 @@ export function ParticipantsPage() {
                         onChange={() => togglePoolItem(p.id)}
                       />
                       <span className="text-sm">{p.displayName}</span>
+                      {p.currentStarts > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="ml-auto shrink-0 text-[10px] font-normal text-muted-foreground"
+                        >
+                          {p.currentStarts}/{maxStarts} Starts
+                        </Badge>
+                      )}
                     </label>
                   ))}
                 </div>
@@ -689,6 +946,40 @@ export function ParticipantsPage() {
                 {...createForm.register("dateOfBirth")}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="phoneNumber">Telefonnummer (optional)</Label>
+              <Input
+                id="phoneNumber"
+                {...createForm.register("phoneNumber")}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="notes">Notizen (optional)</Label>
+              <Input
+                id="notes"
+                {...createForm.register("notes")}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="starts">Anzahl der Starts</Label>
+              <Input
+                id="starts"
+                type="number"
+                min={1}
+                max={maxStarts}
+                {...createForm.register("starts")}
+              />
+              {createForm.formState.errors.starts && (
+                <p className="text-sm text-destructive">
+                  {createForm.formState.errors.starts.message}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Mehrere Starts = mehrere Karten derselben Person. Jeder Start ist
+                ein eigener Turniereintrag und wird bei der Auslosung auf einen
+                anderen Baum verteilt. Maximal {maxStarts} Starts.
+              </p>
+            </div>
             <DialogFooter>
               <Button type="submit" disabled={createAndRegisterMutation.isPending}>
                 {createAndRegisterMutation.isPending && (
@@ -698,6 +989,55 @@ export function ParticipantsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Start settings dialog: variable max starts per person */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start-Einstellungen</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="maxStarts">Maximale Starts pro Person</Label>
+            <Input
+              id="maxStarts"
+              type="number"
+              min={1}
+              max={MAX_STARTS_LIMIT}
+              value={settingsMaxStarts}
+              onChange={(e) => {
+                const val = Math.min(
+                  MAX_STARTS_LIMIT,
+                  Math.max(1, parseInt(e.target.value) || 1),
+                );
+                setSettingsMaxStarts(val);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Wie oft dieselbe Person in diesem Turnier starten darf (mehrere
+              Karten). Der Wert gilt pro Turnier und wird gespeichert.
+              Maximal {MAX_STARTS_LIMIT}.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSettingsOpen(false)}
+              disabled={maxStartsMutation.isPending}
+            >
+              Abbrechen
+            </Button>
+            <Button
+              onClick={() => maxStartsMutation.mutate(settingsMaxStarts)}
+              disabled={maxStartsMutation.isPending}
+            >
+              {maxStartsMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Speichern
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

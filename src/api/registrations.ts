@@ -3,6 +3,11 @@ import { apiClient } from "./client";
 export interface RegistrationDto {
   participantId: string;
   participantDisplayName: string;
+  /**
+   * Die Person hinter dem Start. Mehrere Registrierungen mit derselben userId
+   * sind mehrere Starts derselben Person (z. B. "3 Karten gekauft").
+   */
+  userId: string | null;
   status: string;
   seedNumber: number | null;
   registeredAt: string;
@@ -16,6 +21,35 @@ export interface TournamentRegistrationsResponse {
   registrations: RegistrationDto[];
   totalConfirmed: number;
   totalCheckedIn: number;
+}
+
+/**
+ * Request für das Anlegen einer neuen Person (ohne Account) inkl. aller Starts
+ * in einem Schritt. Ersetzt den alten 3-Schritt-Flow
+ * (Participant anlegen → registrieren → wiederholen).
+ */
+export interface BulkCreateRegistrationRequest {
+  firstName: string;
+  lastName: string;
+  /** Anzahl gekaufter Karten, 1–3. Default 1. */
+  startCount?: number;
+  /** YYYY-MM-DD */
+  dateOfBirth?: string | null;
+  phoneNumber?: string | null;
+  notes?: string | null;
+}
+
+export interface BulkCreateStartDto {
+  participantId: string;
+  displayName: string;
+  startNumber: number;
+  registeredAt: string;
+}
+
+export interface BulkCreateRegistrationResponse {
+  tournamentId: string;
+  personDisplayName: string;
+  starts: BulkCreateStartDto[];
 }
 
 export async function getRegistrations(
@@ -43,6 +77,23 @@ export async function bulkRegister(
   await apiClient.post(`/tournaments/${tournamentId}/registrations/bulk`, {
     participantIds,
   });
+}
+
+/**
+ * Legt eine neue Person (ohne Account/Einladung) an und registriert alle
+ * gekauften Starts transaktional in einem Aufruf. Jeder Start ist ein eigener
+ * Turniereintrag mit eigener participantId. Die 3-Starts-Grenze prüft das
+ * Backend (400 bei startCount außerhalb 1–3).
+ */
+export async function bulkCreateRegistration(
+  tournamentId: string,
+  data: BulkCreateRegistrationRequest,
+): Promise<BulkCreateRegistrationResponse> {
+  const response = await apiClient.post<BulkCreateRegistrationResponse>(
+    `/tournaments/${tournamentId}/registrations/bulk-create`,
+    data,
+  );
+  return response.data;
 }
 
 export async function removeRegistration(

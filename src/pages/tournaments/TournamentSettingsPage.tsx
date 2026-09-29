@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Trash2 } from "lucide-react";
-import { getTournament, updateTournament, updateTournamentVisibility, deleteTournament, updateTournamentStatus } from "@/api/tournaments";
+import { getTournament, updateTournament, deleteTournament, updateTournamentStatus } from "@/api/tournaments";
 import { getMatches } from "@/api/matches";
 import { TournamentStatusTimeline } from "@/components/tournament/TournamentStatusTimeline";
 import type { UpdateTournamentRequest } from "@/types/tournament";
@@ -49,6 +49,13 @@ const updateSchema = z.object({
   endDate: z.string().min(1, "Enddatum ist erforderlich"),
   maxParticipants: z.string().optional(),
   minParticipants: z.string().optional(),
+  maxStartsPerPerson: z
+    .string()
+    .optional()
+    .refine(
+      (v) => !v || (Number.isInteger(Number(v)) && Number(v) >= 1),
+      "Mindestens 1 Start pro Person",
+    ),
   matchSetsToWinOverride: z
     .string()
     .optional()
@@ -149,6 +156,7 @@ export function TournamentSettingsPage() {
           endDate: tournament.endDate.split("T")[0] ?? "",
           maxParticipants: tournament.maxParticipants?.toString(),
           minParticipants: (tournament.minParticipants ?? 2).toString(),
+          maxStartsPerPerson: tournament.maxStartsPerPerson?.toString() ?? "",
           matchSetsToWinOverride: tournament.matchSetsToWinOverride?.toString() ?? "",
           matchPointsToWinOverride: tournament.matchPointsToWinOverride?.toString() ?? "",
           visibility: (tournament.visibility === "Public" ? "Public" : "Private") as "Public" | "Private",
@@ -188,15 +196,22 @@ export function TournamentSettingsPage() {
         </CardHeader>
         <form
           onSubmit={handleSubmit(async (data) => {
-            const promises: Promise<unknown>[] = [
-              updateMutation.mutateAsync({
+            try {
+              await updateMutation.mutateAsync({
                 name: data.name,
                 description: data.description,
                 location: data.location,
                 startDate: data.startDate,
                 endDate: data.endDate,
-                maxParticipants: data.maxParticipants ? Number(data.maxParticipants) : null,
-                minParticipants: data.minParticipants ? Number(data.minParticipants) : null,
+                maxParticipants: data.maxParticipants
+                  ? Number(data.maxParticipants)
+                  : undefined,
+                minParticipants: data.minParticipants
+                  ? Number(data.minParticipants)
+                  : undefined,
+                maxStartsPerPerson: data.maxStartsPerPerson
+                  ? Number(data.maxStartsPerPerson)
+                  : undefined,
                 matchSetsToWinOverride: data.matchSetsToWinOverride
                   ? Number(data.matchSetsToWinOverride)
                   : null,
@@ -204,16 +219,9 @@ export function TournamentSettingsPage() {
                   ? Number(data.matchPointsToWinOverride)
                   : null,
                 visibility: data.visibility,
-              }),
-              updateTournamentVisibility(tournamentId!, data.visibility),
-            ];
-
-            try {
-              await Promise.all(promises);
-              queryClient.invalidateQueries({ queryKey: ["tournament", tournamentId] });
-              queryClient.invalidateQueries({ queryKey: ["tournaments"] });
+              });
             } catch {
-              // errors are handled by updateMutation.isError
+              // Errors are displayed through updateMutation.isError.
             }
           })}
         >
@@ -274,6 +282,23 @@ export function TournamentSettingsPage() {
                   min={2}
                   {...register("maxParticipants")}
                 />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="maxStartsPerPerson">Max. Starts pro Person</Label>
+                <Input
+                  id="maxStartsPerPerson"
+                  type="number"
+                  min={1}
+                  placeholder="Keine Begrenzung"
+                  {...register("maxStartsPerPerson")}
+                />
+                {errors.maxStartsPerPerson && (
+                  <p className="text-sm text-destructive">
+                    {errors.maxStartsPerPerson.message}
+                  </p>
+                )}
               </div>
             </div>
             <div className="space-y-2">

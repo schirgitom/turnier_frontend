@@ -3,6 +3,7 @@ import type {
   PhaseVenueListResponse,
   PhaseVenueDto,
   AddPhaseVenueRequest,
+  UpdatePhaseVenueRequest,
 } from "@/types/phaseVenue";
 
 const base = (tournamentId: string, phaseId: string) =>
@@ -33,11 +34,11 @@ export async function addPhaseVenue(
 export async function updatePhaseVenue(
   tournamentId: string,
   phaseId: string,
-  id: string,
-  data: AddPhaseVenueRequest,
+  venueId: string,
+  data: UpdatePhaseVenueRequest,
 ): Promise<PhaseVenueDto> {
   const response = await apiClient.put<PhaseVenueDto>(
-    `${base(tournamentId, phaseId)}/${id}`,
+    `${base(tournamentId, phaseId)}/${venueId}`,
     data,
   );
   return response.data;

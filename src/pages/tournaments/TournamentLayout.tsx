@@ -37,6 +37,12 @@ const navItems = [
   { to: "settings", label: "Einstellungen", icon: Settings },
 ];
 
+// Tabs, die für bestimmte Turnierarten keinen Sinn ergeben. Paschturniere
+// (sportCode === "paschen") kommen ohne Spielstätten-/Court-Verwaltung aus.
+const HIDDEN_TABS_BY_SPORT: Record<string, ReadonlyArray<string>> = {
+  paschen: ["venues"],
+};
+
 export function TournamentLayout() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -54,6 +60,15 @@ export function TournamentLayout() {
     queryClient,
     accessToken,
   });
+
+  // Für die Turnierart nicht relevante Tabs ausblenden (z. B. Spielstätten bei
+  // Paschturnieren). Solange das Turnier noch lädt, zeigen wir alle Tabs.
+  const hiddenTabs = tournament?.sportCode
+    ? HIDDEN_TABS_BY_SPORT[tournament.sportCode] ?? []
+    : [];
+  const visibleNavItems = navItems.filter(
+    (item) => !hiddenTabs.includes(item.to),
+  );
 
   return (
     <div>
@@ -82,7 +97,7 @@ export function TournamentLayout() {
           )}
         </div>
         <nav className="flex gap-1 overflow-x-auto px-6">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
