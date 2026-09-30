@@ -1,14 +1,19 @@
-import { Outlet, NavLink, useNavigate, Navigate } from "react-router";
+import { useState } from "react";
+import { Outlet, NavLink, Link, useNavigate, Navigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   LogOut,
   User,
   ChevronDown,
   LayoutDashboard,
-  ArrowLeftRight,
+  Building2,
+  Check,
+  Plus,
+  Loader2,
+  UserPlus,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
-import { useLogout } from "@/hooks/useAuth";
+import { useLogout, useSwitchOrganization } from "@/hooks/useAuth";
 import { getMyOrganizations } from "@/api/auth";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -20,19 +25,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { roleLabel } from "@/types/auth";
+import { InviteUserDialog } from "@/components/organization/InviteUserDialog";
+
+const ADMIN_ROLES = ["Admin", "Owner"];
+
+const navItems = [
+  { to: "/tournaments", label: "Turniere", icon: LayoutDashboard },
+];
 
 export function AppLayout() {
   const navigate = useNavigate();
-  const { user, activeOrg, setActiveOrg } = useAuthStore();
+  const { user, activeOrg } = useAuthStore();
   const logoutMutation = useLogout();
+  const switchMutation = useSwitchOrganization();
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   const { data: memberships } = useQuery({
     queryKey: ["my-organizations"],
@@ -52,88 +60,113 @@ export function AppLayout() {
         .toUpperCase()
     : "?";
 
+  const canInvite = ADMIN_ROLES.includes(activeOrg.role);
+
+  const headerButton =
+    "gap-2 text-[rgba(255,255,255,0.8)] hover:bg-sidebar-accent hover:text-white";
+
   return (
-    <div className="flex h-screen">
-      <aside className="flex w-64 flex-col border-r border-sidebar-border bg-sidebar-background text-sidebar-foreground">
-        <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/95 p-1.5 shadow-sm ring-1 ring-white/15">
+    <div className="flex h-screen flex-col">
+      <header className="flex h-16 shrink-0 items-center gap-4 border-b border-sidebar-border bg-sidebar-background px-4 text-sidebar-foreground">
+        <Link to="/tournaments" className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/95 p-1.5 shadow-sm ring-1 ring-white/15">
             <img
               src="/logo.png"
               alt="Victora"
               className="h-full w-full object-contain"
             />
           </div>
-          {activeOrg && (
-            <span className="ml-auto text-xs text-[rgba(255,255,255,0.4)]">
-              {activeOrg.organizationName}
-            </span>
-          )}
-        </div>
+        </Link>
 
-        {memberships && memberships.length > 1 && (
-          <div className="border-b border-sidebar-border p-3">
-            <Select
-              value={activeOrg?.organizationId ?? ""}
-              onValueChange={(value) => {
-                const org = memberships.find(
-                  (m) => m.organizationId === value,
-                );
-                if (org) setActiveOrg(org);
-              }}
+        <nav className="flex items-center gap-1">
+          {navItems.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-[#AF5574] text-white"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-white",
+                )
+              }
             >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Organisation" />
-              </SelectTrigger>
-              <SelectContent>
-                {memberships.map((m) => (
-                  <SelectItem
-                    key={m.organizationId}
-                    value={m.organizationId}
-                  >
-                    {m.organizationName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        <nav className="flex-1 space-y-1 p-3">
-          <NavLink
-            to="/tournaments"
-            end
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-[#AF5574] text-white"
-                  : "text-[rgba(255,255,255,0.65)] hover:bg-[rgba(175,85,116,0.3)]",
-              )
-            }
-          >
-            <LayoutDashboard className="h-4 w-4" />
-            Turniere
-          </NavLink>
+              <Icon className="h-4 w-4" />
+              {label}
+            </NavLink>
+          ))}
         </nav>
 
-        <div className="border-t border-[rgba(255,255,255,0.1)]" />
-
-        <div className="p-3">
+        <div className="ml-auto flex items-center gap-2">
+          {/* Organisation */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                className="w-full justify-start gap-2 px-2 text-[rgba(255,255,255,0.65)] hover:bg-[rgba(175,85,116,0.3)] hover:text-white"
+                className={cn(headerButton, "max-w-xs")}
+                disabled={switchMutation.isPending}
               >
+                {switchMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Building2 className="h-4 w-4" />
+                )}
+                <span className="hidden truncate text-sm sm:inline">
+                  {activeOrg.organizationName}
+                </span>
+                <ChevronDown className="h-4 w-4 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                Organisation
+              </DropdownMenuLabel>
+              {(memberships ?? []).map((m) => {
+                const isActive = m.organizationId === activeOrg.organizationId;
+                return (
+                  <DropdownMenuItem
+                    key={m.organizationId}
+                    onClick={() => {
+                      if (!isActive) switchMutation.mutate(m.organizationId);
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        "h-4 w-4",
+                        isActive ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    <span className="flex-1 truncate">{m.organizationName}</span>
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuSeparator />
+              {canInvite && (
+                <DropdownMenuItem onClick={() => setInviteOpen(true)}>
+                  <UserPlus className="h-4 w-4" />
+                  Person einladen
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => navigate("/onboarding")}>
+                <Plus className="h-4 w-4" />
+                Organisation erstellen / beitreten
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Benutzer */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className={cn(headerButton, "px-2")}>
                 <Avatar className="h-7 w-7">
-                  <AvatarFallback className="bg-[#AF5574] text-xs text-white">{initials}</AvatarFallback>
+                  <AvatarFallback className="bg-[#AF5574] text-xs text-white">
+                    {initials}
+                  </AvatarFallback>
                 </Avatar>
-                <div className="flex flex-1 flex-col truncate text-left">
-                  <span className="truncate text-sm">{user?.displayName}</span>
-                  <span className="truncate text-xs text-[rgba(255,255,255,0.4)]">
-                    {user?.email}
-                  </span>
-                </div>
+                <span className="hidden text-sm md:inline">
+                  {user?.displayName}
+                </span>
                 <ChevronDown className="h-4 w-4 opacity-50" />
               </Button>
             </DropdownMenuTrigger>
@@ -142,38 +175,41 @@ export function AppLayout() {
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium">{user?.displayName}</p>
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
-                  {activeOrg && (
-                    <p className="text-xs text-muted-foreground">
-                      Org: {activeOrg.organizationName}
-                    </p>
-                  )}
+                  <p className="text-xs text-muted-foreground">
+                    {activeOrg.organizationName}
+                    {activeOrg.role ? ` · ${roleLabel(activeOrg.role)}` : ""}
+                  </p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate("/account")}>
-                <User className="mr-2 h-4 w-4" />
+                <User className="h-4 w-4" />
                 Konto bearbeiten
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/onboarding")}>
-                <ArrowLeftRight className="mr-2 h-4 w-4" />
-                Organisation wechseln
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => logoutMutation.mutate()}
                 className="text-destructive"
               >
-                <LogOut className="mr-2 h-4 w-4" />
+                <LogOut className="h-4 w-4" />
                 Abmelden
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </aside>
+      </header>
 
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
+
+      {canInvite && (
+        <InviteUserDialog
+          organizationName={activeOrg.organizationName}
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+        />
+      )}
     </div>
   );
 }

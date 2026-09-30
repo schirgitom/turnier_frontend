@@ -344,6 +344,7 @@ function GroupPhaseCard({
   resetting,
   onSchedule,
   scheduling,
+  alwaysExpanded = false,
 }: {
   phase: GroupPhaseResponse;
   tournamentId: string;
@@ -355,6 +356,7 @@ function GroupPhaseCard({
   resetting: boolean;
   onSchedule: () => void;
   scheduling: boolean;
+  alwaysExpanded?: boolean;
 }) {
   const queryClient = useQueryClient();
   const canGenerate =
@@ -365,7 +367,8 @@ function GroupPhaseCard({
   const phaseStatusHint = getPhaseStatusHint(phase.status);
   const hasGroups = (phase.groups?.length ?? 0) > 0;
 
-  const [expanded, setExpanded] = useState(hasGroups);
+  const [expandedState, setExpanded] = useState(hasGroups);
+  const expanded = alwaysExpanded || expandedState;
   const [reassignTarget, setReassignTarget] = useState<{
     participant: GroupParticipant;
     sourceGroupId: string;
@@ -432,7 +435,7 @@ function GroupPhaseCard({
   );
   const [downloadingQualifiersPdf, setDownloadingQualifiersPdf] = useState(false);
 
-  const groups = phase.groups ?? [];
+  const groups = useMemo(() => phase.groups ?? [], [phase.groups]);
   const displayGroups = useMemo(
     () =>
       [...groups].sort((a, b) =>
@@ -807,18 +810,20 @@ function GroupPhaseCard({
             >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setExpanded((e) => !e)}
-              aria-label={expanded ? "Zuklappen" : "Aufklappen"}
-            >
-              {expanded ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </Button>
+            {!alwaysExpanded && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setExpanded((e) => !e)}
+                aria-label={expanded ? "Zuklappen" : "Aufklappen"}
+              >
+                {expanded ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+            )}
           </div>
         </CardHeader>
 
@@ -1394,6 +1399,7 @@ function EliminationPhaseCard({
   resetting,
   onSchedule,
   scheduling,
+  alwaysExpanded = false,
 }: {
   phase: EliminationPhaseResponse;
   tournamentId: string;
@@ -1405,6 +1411,7 @@ function EliminationPhaseCard({
   resetting: boolean;
   onSchedule: () => void;
   scheduling: boolean;
+  alwaysExpanded?: boolean;
 }) {
   const canGenerate =
     phase.status !== "Generated" && phase.status !== "Completed";
@@ -1412,7 +1419,8 @@ function EliminationPhaseCard({
   const canSchedule = phase.status === "InProgress" || phase.status === "Generated";
   const canDownloadFinalRanking = phase.status !== "Pending";
   const phaseStatusHint = getPhaseStatusHint(phase.status);
-  const [expanded, setExpanded] = useState(false);
+  const [expandedState, setExpanded] = useState(false);
+  const expanded = alwaysExpanded || expandedState;
   const [downloadingFinalRanking, setDownloadingFinalRanking] = useState(false);
 
   const { data: phaseVenues } = useQuery({
@@ -1526,18 +1534,20 @@ function EliminationPhaseCard({
           >
             <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setExpanded((e) => !e)}
-            aria-label={expanded ? "Zuklappen" : "Aufklappen"}
-          >
-            {expanded ? (
-              <ChevronUp className="h-4 w-4" />
-            ) : (
-              <ChevronDown className="h-4 w-4" />
-            )}
-          </Button>
+          {!alwaysExpanded && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setExpanded((e) => !e)}
+              aria-label={expanded ? "Zuklappen" : "Aufklappen"}
+            >
+              {expanded ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+          )}
         </div>
       </CardHeader>
 
@@ -1794,17 +1804,28 @@ export function PhasesPage() {
     );
   }
 
+  const firstPhase = [...phases].sort((a, b) => a.phaseOrder - b.phaseOrder)[0];
+  // Bei Paschen ist participantCount die Baum-Kapazität; freie Plätze werden
+  // zu Freilosen. Der Backend-Abgleich mit den Anmeldungen greift hier nicht.
+  const validationErrors = (data?.validationErrors ?? []).filter(
+    (err) =>
+      !(
+        firstPhase &&
+        isPaschenPhase(firstPhase) &&
+        /first phase participant count .* does not match confirmed registration count/i.test(err)
+      ),
+  );
   const configInvalid =
     data !== undefined &&
     !data.isConfigurationValid &&
-    data.validationErrors.length > 0;
+    validationErrors.length > 0;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold">Phasen ({phases.length})</h2>
-          {data && phases.length > 0 && data.isConfigurationValid && (
+          {data && phases.length > 0 && !configInvalid && (
             <Badge
               variant="outline"
               className="border-[#3FA97B] text-[#3FA97B]"
@@ -1889,7 +1910,7 @@ export function PhasesPage() {
                 Konfiguration ungültig:
               </p>
               <ul className="list-inside list-disc text-sm text-[#c47e00]/80">
-                {data.validationErrors.map((err) => (
+                {validationErrors.map((err) => (
                   <li key={err}>{err}</li>
                 ))}
               </ul>
@@ -1912,6 +1933,7 @@ export function PhasesPage() {
                   key={phase.id}
                   phase={phase}
                   tournamentId={tournamentId!}
+                  alwaysExpanded={phases.length === 1}
                   onDelete={() => handleDelete(phase)}
                   deleting={deleteMutation.isPending}
                   onGenerate={() => handleGeneratePhase(phase.id)}
@@ -1926,6 +1948,7 @@ export function PhasesPage() {
                   key={phase.id}
                   phase={phase}
                   tournamentId={tournamentId!}
+                  alwaysExpanded={phases.length === 1}
                   onDelete={() => handleDelete(phase)}
                   deleting={deleteMutation.isPending}
                   onGenerate={() => handleGeneratePhase(phase.id)}
@@ -1940,6 +1963,7 @@ export function PhasesPage() {
                   key={phase.id}
                   phase={phase}
                   tournamentId={tournamentId!}
+                  alwaysExpanded={phases.length === 1}
                   onDelete={() => handleDelete(phase)}
                   deleting={deleteMutation.isPending}
                   onGenerate={() => handleGeneratePhase(phase.id)}
@@ -1964,9 +1988,9 @@ export function PhasesPage() {
             <DialogTitle>Phase zurücksetzen?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Alle generierten Spiele, Bäume und Gruppenzuordnungen werden
-            gelöscht. Die Phasenkonfiguration (Anzahl Gruppen bzw. Bäume,
-            Aufsteiger etc.) bleibt erhalten.
+            {resetTarget && isPaschenPhase(resetTarget)
+              ? "Die komplette Auslosung wird gelöscht – samt aller Bäume, Zuordnungen und bereits erfassten Ergebnisse. Die Phasenkonfiguration (Anzahl Bäume, Regeln) bleibt erhalten. Danach müssen die Bäume neu angelegt und alle Starts neu ausgelost werden."
+              : "Alle generierten Spiele, Bäume und Gruppenzuordnungen werden gelöscht. Die Phasenkonfiguration (Anzahl Gruppen bzw. Bäume, Aufsteiger etc.) bleibt erhalten."}
           </p>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setResetTarget(null)}>

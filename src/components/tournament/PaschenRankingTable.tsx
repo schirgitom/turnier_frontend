@@ -44,49 +44,47 @@ export function PaschenRankingTable({
           {data.isComplete ? "Endstand" : "Zwischenstand"}
         </Badge>
         <span className="text-xs text-muted-foreground">
-          Beste {data.rankingSize} – weniger Punkte = besser
+          Beste {data.rankingSize}
         </span>
       </div>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-14">Platz</TableHead>
-            <TableHead>Teilnehmer</TableHead>
-            <TableHead>Erreicht</TableHead>
-            <TableHead className="text-right">Punkte</TableHead>
-            <TableHead className="text-right">Spiele</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data.entries.map((entry) => (
-            <TableRow key={entry.participantId}>
-              <TableCell className="font-semibold tabular-nums">
-                <span className="flex items-center gap-1">
-                  {MEDAL_COLORS[entry.rank] && (
-                    <Medal
-                      className={cn("h-3.5 w-3.5", MEDAL_COLORS[entry.rank])}
-                    />
-                  )}
-                  {entry.rank}
-                </span>
-              </TableCell>
-              <TableCell className="font-medium">
-                {entry.participantName}
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {entry.stageLabel}
-              </TableCell>
-              <TableCell className="text-right font-bold tabular-nums">
-                {entry.totalPoints}
-              </TableCell>
-              <TableCell className="text-right tabular-nums text-muted-foreground">
-                {entry.matchesPlayed}
-              </TableCell>
+      <div className="overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40">
+              <TableHead className="w-16">Platz</TableHead>
+              <TableHead>Teilnehmer</TableHead>
+              <TableHead>Erreicht</TableHead>
+              <TableHead className="text-right">Spiele</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {data.entries.map((entry) => (
+              <TableRow key={entry.participantId}>
+                <TableCell className="font-semibold tabular-nums">
+                  <span className="flex items-center gap-1">
+                    {MEDAL_COLORS[entry.rank] && (
+                      <Medal
+                        className={cn("h-3.5 w-3.5", MEDAL_COLORS[entry.rank])}
+                      />
+                    )}
+                    {entry.rank}
+                  </span>
+                </TableCell>
+                <TableCell className="font-medium">
+                  {entry.participantName}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {entry.stageLabel}
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">
+                  {entry.matchesPlayed}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

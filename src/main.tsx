@@ -5,7 +5,10 @@ import { Toaster } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import { refreshTokens } from "@/api/auth";
 import { router } from "@/router";
+import { initAuthSync } from "@/lib/authSync";
 import "@/app.css";
+
+initAuthSync();
 
 async function initAuth() {
   const { refreshToken, accessToken } = useAuthStore.getState();

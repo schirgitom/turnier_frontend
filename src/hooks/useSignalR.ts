@@ -7,6 +7,8 @@ import {
 import type { HubConnection } from "@microsoft/signalr";
 import type { QueryClient } from "@tanstack/react-query";
 
+import { useAuthStore } from "@/store/authStore";
+
 interface UseSignalROptions {
   hubUrl: string;
   tournamentId: string;
@@ -27,7 +29,11 @@ export function useSignalR({
 
     const builder = new HubConnectionBuilder()
       .withUrl(url, {
-        accessTokenFactory: accessToken ? () => accessToken : undefined,
+        // Immer den aktuellen Token verwenden. Ändert sich der Token (z. B. beim
+        // Organisationswechsel), baut der Effect die Verbindung komplett neu auf.
+        accessTokenFactory: accessToken
+          ? () => useAuthStore.getState().accessToken ?? accessToken
+          : undefined,
       })
       .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
       .configureLogging(LogLevel.Warning);

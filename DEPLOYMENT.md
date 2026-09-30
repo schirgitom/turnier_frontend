@@ -2,19 +2,19 @@
 
 ## 1) Build and push to Docker Hub
 
-Replace `YOUR_DOCKERHUB_USER` with your Docker Hub username.
+Replace `thomasschirgi` with your Docker Hub username.
 
 ```bash
 docker login
-docker build -t YOUR_DOCKERHUB_USER/victora-frontend:latest .
-docker push YOUR_DOCKERHUB_USER/victora-frontend:latest
+docker build -t thomasschirgi/victora-frontend:latest .
+docker push thomasschirgi/victora-frontend:latest
 ```
 
 Optional multi-arch image:
 
 ```bash
 docker buildx create --use --name victora-builder || true
-docker buildx build --platform linux/amd64,linux/arm64 -t YOUR_DOCKERHUB_USER/victora-frontend:latest --push .
+docker buildx build --platform linux/amd64,linux/arm64 -t thomasschirgi/victora-frontend:latest --push .
 ```
 
 ## 2) Run on server / Portainer (frontend only)
@@ -54,7 +54,7 @@ Minimal compose sketch:
 ```yaml
 services:
   frontend:
-    image: YOUR_DOCKERHUB_USER/victora-frontend:latest
+    image: thomasschirgi/victora-frontend:latest
     restart: unless-stopped
 
   caddy:

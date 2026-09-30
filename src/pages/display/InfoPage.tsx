@@ -10,19 +10,28 @@ import {
   getPublicMatches,
   getPublicStandings,
 } from "@/api/display";
-import { getPhases, getPhaseMatches } from "@/api/phases";
+import { getDisplayPhases, getDisplayPhaseMatches } from "@/api/phases";
 import { BracketView } from "@/components/tournament/BracketView";
 import { MatchStatus } from "@/types/match";
 import type { MatchDto } from "@/types/match";
 import type { GroupStandings } from "@/types/standings";
 import { cn } from "@/lib/utils";
-import { isGroupPhase } from "@/types/phase";
+import { isGroupPhase, isPaschenPhase } from "@/types/phase";
 import { isEliminationBracket } from "@/types/bracket";
 import type {
   EliminationBracketResponse,
   GroupMatchesResponse,
   GroupMatchDto,
 } from "@/types/bracket";
+import type { PaschenPhaseResponse } from "@/types/paschen";
+import {
+  usePaschenDisplayData,
+  PaschenDisplayMatchCard,
+  isPaschenLikeMatch,
+  resolvePaschenPlayers,
+  mergePaschenMatches,
+  PaschenRankingsSection,
+} from "./paschenDisplay";
 
 const STATUS_LABELS: Record<string, string> = {
   Scheduled: "Geplant",
@@ -59,7 +68,7 @@ interface GroupTabEntry {
   matches: GroupMatchDto[];
 }
 
-type TabId = "search" | "standings" | "ko";
+type TabId = "search" | "standings" | "ko" | "paschen";
 
 function displayPhaseName(name: string): string {
   return name.replace(/^Group\s*/i, "Gruppe ").trim();
@@ -90,45 +99,62 @@ export function InfoPage() {
     retry: false,
   });
 
-  const { data: matches } = useQuery({
+  const { data: rawMatches } = useQuery({
     queryKey: ["info", tournamentId, "matches"],
     queryFn: () => getPublicMatches(tournamentId!),
     enabled: !!tournamentId,
     refetchInterval: 30000,
   });
 
-    const { data: phasesData } = useQuery({
+  const { data: phasesData } = useQuery({
     queryKey: ["info", tournamentId, "phases"],
-    queryFn: () => getPhases(tournamentId!),
+    queryFn: () => getDisplayPhases(tournamentId!),
     enabled: !!tournamentId,
     retry: false,
     refetchInterval: 60000,
   });
 
-    const phases = phasesData?.phases ?? [];
-    const groupPhases = useMemo(
-      () => phases.filter((phase) => isGroupPhase(phase)),
-      [phases],
-    );
-    const eliminationPhases = useMemo(
-      () => phases.filter((phase) => !isGroupPhase(phase)),
-      [phases],
-    );
+  const phases = phasesData?.phases ?? [];
+  const groupPhases = useMemo(
+    () => phases.filter((phase) => isGroupPhase(phase)),
+    [phases],
+  );
+  const eliminationPhases = useMemo(
+    () => phases.filter((phase) => !isGroupPhase(phase) && !isPaschenPhase(phase)),
+    [phases],
+  );
 
-    const phaseMatchesQueries = useQueries({
-      queries: phases.map((phase) => ({
-        queryKey: ["info", tournamentId, "phaseMatches", phase.id],
-        queryFn: () => getPhaseMatches(tournamentId!, phase.id),
-        enabled: !!tournamentId,
-        refetchInterval: 30000,
-        retry: false,
-      })),
-    });
+  const paschen = usePaschenDisplayData(tournamentId, phases, "info");
 
-    const phaseById = useMemo(
-      () => new Map(phases.map((phase) => [phase.id, phase])),
-      [phases],
-    );
+  // Paschen-Spiele kommen nicht über /public/.../matches – aus den Bäumen ergänzen.
+  const matches = useMemo(
+    () => mergePaschenMatches(rawMatches, paschen.paschenPhases),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawMatches, paschen.nameMap, paschen.matchLabels],
+  );
+
+  const paschenRankingPhases = useMemo(
+    () =>
+      phases
+        .filter((phase) => isPaschenPhase(phase))
+        .map((phase) => ({ id: phase.id, name: displayPhaseName(phase.name) })),
+    [phases],
+  );
+
+  const phaseMatchesQueries = useQueries({
+    queries: phases.map((phase) => ({
+      queryKey: ["info", tournamentId, "phaseMatches", phase.id],
+      queryFn: () => getDisplayPhaseMatches(tournamentId!, phase.id),
+      enabled: !!tournamentId && !isPaschenPhase(phase),
+      refetchInterval: 30000,
+      retry: false,
+    })),
+  });
+
+  const phaseById = useMemo(
+    () => new Map(phases.map((phase) => [phase.id, phase])),
+    [phases],
+  );
 
   const phaseIds = useMemo(() => {
     const groupPhaseIds = groupPhases.map((phase) => phase.id);
@@ -138,10 +164,10 @@ export function InfoPage() {
     if (!matches) return [];
     const ids = new Set<string>();
     for (const m of matches) {
-      if (m.phaseId) ids.add(m.phaseId);
+      if (m.phaseId && !isPaschenLikeMatch(m) && !paschen.paschenPhaseIds.has(m.phaseId)) ids.add(m.phaseId);
     }
     return [...ids];
-  }, [matches, groupPhases]);
+  }, [matches, groupPhases, paschen.paschenPhaseIds]);
 
   const standingsQueries = useQueries({
     queries: phaseIds.map((phaseId) => ({
@@ -267,8 +293,27 @@ export function InfoPage() {
       }
     });
 
+    for (const phase of paschen.paschenPhases) {
+      for (const bracket of phase.brackets) {
+        for (const m of bracket.matches) {
+          meta.set(m.id, {
+            phaseId: phase.id,
+            phaseName: displayPhaseName(phase.name),
+            roundLabel: paschen.matchLabels.get(m.id) ?? `Runde ${m.round}`,
+          });
+        }
+      }
+      for (const m of phase.finalMatches) {
+        meta.set(m.id, {
+          phaseId: phase.id,
+          phaseName: displayPhaseName(phase.name),
+          roundLabel: paschen.matchLabels.get(m.id) ?? `Finalrunde ${m.round}`,
+        });
+      }
+    }
+
     return meta;
-  }, [phases, phaseMatchesQueries]);
+  }, [phases, phaseMatchesQueries, paschen.paschenPhases, paschen.matchLabels]);
 
   const koPhases = useMemo<KoPhaseEntry[]>(
     () =>
@@ -294,9 +339,15 @@ export function InfoPage() {
   const koMatchesFallback = useMemo(() => {
     if (!matches) return [];
     return matches
-      .filter((m) => m.phaseId && !standingsPhaseIds.has(m.phaseId))
+      .filter(
+        (m) =>
+          m.phaseId &&
+          !standingsPhaseIds.has(m.phaseId) &&
+          !paschen.paschenPhaseIds.has(m.phaseId) &&
+          !isPaschenLikeMatch(m),
+      )
       .sort((a, b) => (a.round ?? 0) - (b.round ?? 0));
-  }, [matches, standingsPhaseIds]);
+  }, [matches, standingsPhaseIds, paschen.paschenPhaseIds]);
 
   const allParticipants = useMemo(() => {
     const names = new Set<string>();
@@ -306,16 +357,23 @@ export function InfoPage() {
       }
     }
     matches?.forEach((m) => {
+      if (isPaschenLikeMatch(m)) {
+        for (const p of resolvePaschenPlayers(m, paschen.nameMap)) {
+          if (p.name !== "Unbekannt") names.add(p.name);
+        }
+        return;
+      }
       if (m.homeParticipantName) names.add(m.homeParticipantName);
       if (m.awayParticipantName) names.add(m.awayParticipantName);
     });
+    for (const n of paschen.nameMap.values()) names.add(n);
     return Array.from(names).sort((a, b) => {
       const numA = parseInt(a.split(" ").pop() ?? "");
       const numB = parseInt(b.split(" ").pop() ?? "");
       if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
       return a.localeCompare(b, "de");
     });
-  }, [allPhaseGroups, matches]);
+  }, [allPhaseGroups, matches, paschen.nameMap]);
 
   const filteredParticipants = useMemo(() => {
     if (!search.trim()) return allParticipants;
@@ -357,6 +415,9 @@ export function InfoPage() {
     { id: "standings", label: "Tabellen", icon: <Table2 className="h-4 w-4" /> },
     ...(koPhases.length > 0 || koMatchesFallback.length > 0
       ? [{ id: "ko" as TabId, label: "K.O.-Phase", icon: <Trophy className="h-4 w-4" /> }]
+      : []),
+    ...(paschen.paschenPhaseIds.size > 0
+      ? [{ id: "paschen" as TabId, label: "Paschen", icon: <Trophy className="h-4 w-4" /> }]
       : []),
   ];
 
@@ -418,6 +479,7 @@ export function InfoPage() {
               matches={matches ?? []}
               phaseGroups={allPhaseGroups}
               matchMetaById={matchMetaById}
+              paschenNameMap={paschen.nameMap}
               onBack={() => setSelectedName(null)}
             />
           ) : (
@@ -432,16 +494,37 @@ export function InfoPage() {
 
         {/* Tabellen tab */}
         {activeTab === "standings" && (
-          <StandingsTabView
-            groupEntries={groupTabEntries}
-            selectedGroupKey={selectedGroupKey}
-            onSelectGroup={setSelectedGroupKey}
-          />
+          <div className="space-y-8">
+            {tournamentId && (
+              <PaschenRankingsSection
+                tournamentId={tournamentId}
+                phases={paschenRankingPhases}
+                keyPrefix="info"
+              />
+            )}
+            {(groupTabEntries.length > 0 || paschenRankingPhases.length === 0) && (
+              <StandingsTabView
+                groupEntries={groupTabEntries}
+                selectedGroupKey={selectedGroupKey}
+                onSelectGroup={setSelectedGroupKey}
+              />
+            )}
+          </div>
         )}
 
         {/* KO-Phase tab */}
         {activeTab === "ko" && (
           <KoPhaseView phases={koPhases} fallbackMatches={koMatchesFallback} />
+        )}
+
+        {/* Paschen tab */}
+        {activeTab === "paschen" && (
+          <PaschenTabView
+            phases={paschen.paschenPhases}
+            nameMap={paschen.nameMap}
+            matchLabels={paschen.matchLabels}
+            isLoading={paschen.isLoading}
+          />
         )}
       </div>
     </div>
@@ -675,6 +758,89 @@ function KoPhaseView({
   );
 }
 
+// ─── Paschen Tab ──────────────────────────────────────────────────────────────
+
+export function PaschenTabView({
+  phases,
+  nameMap,
+  matchLabels,
+  isLoading,
+}: {
+  phases: PaschenPhaseResponse[];
+  nameMap: Map<string, string>;
+  matchLabels: Map<string, string>;
+  isLoading: boolean;
+}) {
+  if (phases.length === 0) {
+    return (
+      <p className="py-8 text-center text-muted-foreground">
+        {isLoading ? "Paschen-Daten werden geladen…" : "Noch keine Paschen-Spiele vorhanden."}
+      </p>
+    );
+  }
+
+  const sorted = [...phases].sort((a, b) => a.phaseOrder - b.phaseOrder);
+
+  return (
+    <div className="space-y-8">
+      {sorted.map((phase) => (
+        <div key={phase.id} className="space-y-4">
+          <div className="border-b bg-muted/50 px-4 py-2.5">
+            <h3 className="font-semibold">{displayPhaseName(phase.name)}</h3>
+          </div>
+
+          {phase.finalMatches.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-muted-foreground">Finalrunde</h4>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[...phase.finalMatches]
+                  .sort((a, b) => b.round - a.round || a.matchNumber - b.matchNumber)
+                  .map((m) => (
+                    <PaschenDisplayMatchCard
+                      key={m.id}
+                      match={m}
+                      nameMap={nameMap}
+                      size="sm"
+                      label={matchLabels.get(m.id)}
+                    />
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {[...phase.brackets]
+            .sort((a, b) => a.bracketIndex - b.bracketIndex)
+            .map((bracket) => (
+              <div key={bracket.id} className="space-y-2">
+                <h4 className="text-sm font-semibold text-muted-foreground">
+                  Baum {bracket.bracketIndex + 1}
+                  {bracket.isComplete ? " · abgeschlossen" : ""}
+                </h4>
+                {bracket.matches.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Noch keine Spiele.</p>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {[...bracket.matches]
+                      .sort((a, b) => b.round - a.round || a.matchNumber - b.matchNumber)
+                      .map((m) => (
+                        <PaschenDisplayMatchCard
+                          key={m.id}
+                          match={m}
+                          nameMap={nameMap}
+                          size="sm"
+                          label={matchLabels.get(m.id)}
+                        />
+                      ))}
+                  </div>
+                )}
+              </div>
+            ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Search view ──────────────────────────────────────────────────────────────
 
 function SearchView({
@@ -730,26 +896,31 @@ function ParticipantView({
   matches,
   phaseGroups,
   matchMetaById,
+  paschenNameMap,
   onBack,
 }: {
   name: string;
   matches: MatchDto[];
   phaseGroups: PhaseGroup[];
   matchMetaById: Map<string, MatchMeta>;
+  paschenNameMap: Map<string, string>;
   onBack: () => void;
 }) {
   const myMatches = useMemo(
     () =>
       matches
-        .filter(
-          (m) => m.homeParticipantName === name || m.awayParticipantName === name,
+        .filter((m) =>
+          isPaschenLikeMatch(m)
+            ? resolvePaschenPlayers(m, paschenNameMap).some((p) => p.name === name)
+            : m.homeParticipantName === name || m.awayParticipantName === name,
         )
         .sort((a, b) => {
           const ta = a.scheduledAt ?? "";
           const tb = b.scheduledAt ?? "";
-          return ta.localeCompare(tb);
+          if (ta !== tb) return ta.localeCompare(tb);
+          return (a.round ?? 0) - (b.round ?? 0);
         }),
-    [matches, name],
+    [matches, name, paschenNameMap],
   );
 
   const myGroup = useMemo(() => {
@@ -790,6 +961,29 @@ function ParticipantView({
         ) : (
           <div className="divide-y">
             {myMatches.map((match) => {
+              if (isPaschenLikeMatch(match)) {
+                const meta = matchMetaById.get(match.id);
+                return (
+                  <div key={match.id} className="space-y-1 px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-muted-foreground">
+                      <span className="rounded-full border border-input bg-muted px-2 py-0.5 text-xs font-medium text-foreground/80">
+                        {meta?.phaseName ?? "Paschen"}
+                      </span>
+                      {match.scheduledAt && (
+                        <span>{format(new Date(match.scheduledAt), "HH:mm")}</span>
+                      )}
+                    </div>
+                    <PaschenDisplayMatchCard
+                      match={match}
+                      nameMap={paschenNameMap}
+                      size="sm"
+                      highlightName={name}
+                      label={meta?.roundLabel}
+                    />
+                  </div>
+                );
+              }
+
               const isHome = match.homeParticipantName === name;
               const opponent = isHome
                 ? match.awayParticipantName

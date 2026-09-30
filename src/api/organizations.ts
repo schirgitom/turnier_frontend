@@ -2,6 +2,8 @@ import { apiClient } from "./client";
 import type {
   CreateOrganizationRequest,
   OrganizationDto,
+  OrganizationMemberDto,
+  OrganizationInvitationDto,
 } from "@/types/auth";
 
 export async function createOrganization(
@@ -24,4 +26,43 @@ export async function getOrganization(id: string): Promise<OrganizationDto> {
     `/organizations/${id}`,
   );
   return response.data;
+}
+
+// ── Mitgliederverwaltung der aktiven Organisation (nur Admins) ──
+
+export async function getCurrentMembers(): Promise<OrganizationMemberDto[]> {
+  const response = await apiClient.get<OrganizationMemberDto[]>(
+    "/organizations/current/members",
+  );
+  return response.data;
+}
+
+export async function getCurrentInvitations(): Promise<
+  OrganizationInvitationDto[]
+> {
+  const response = await apiClient.get<OrganizationInvitationDto[]>(
+    "/organizations/current/invitations",
+  );
+  return response.data;
+}
+
+export async function revokeInvitation(id: string): Promise<void> {
+  await apiClient.delete(`/organizations/current/invitations/${id}`);
+}
+
+/** 409 = letzter Admin kann nicht herabgestuft werden. */
+export async function changeMemberRole(
+  userId: string,
+  role: string,
+): Promise<OrganizationMemberDto> {
+  const response = await apiClient.put<OrganizationMemberDto>(
+    `/organizations/current/members/${userId}/role`,
+    { role },
+  );
+  return response.data;
+}
+
+/** Deaktiviert die Mitgliedschaft. 409 = letzter Admin. */
+export async function removeMember(userId: string): Promise<void> {
+  await apiClient.delete(`/organizations/current/members/${userId}`);
 }

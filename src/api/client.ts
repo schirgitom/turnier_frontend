@@ -106,6 +106,17 @@ export const publicApiClient = axios.create({
   },
 });
 
+/**
+ * Client für anonym erreichbare Endpunkte unter /api (z. B. Paschen-Lesezugriffe)
+ * – ohne Bearer-Token und ohne Login-Redirect bei 401. Für Beamer/Info-Seiten.
+ */
+export const anonymousApiClient = axios.create({
+  baseURL: apiPrefix,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
 export function getApiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const data = error.response?.data;
@@ -115,4 +126,9 @@ export function getApiErrorMessage(error: unknown): string {
     if (typeof data === "string") return data;
   }
   return "Ein unbekannter Fehler ist aufgetreten.";
+}
+
+/** HTTP-Status eines API-Fehlers, sonst undefined. */
+export function getApiErrorStatus(error: unknown): number | undefined {
+  return axios.isAxiosError(error) ? error.response?.status : undefined;
 }

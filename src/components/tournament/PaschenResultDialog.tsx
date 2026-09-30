@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Loader2, TrendingDown } from "lucide-react";
+import { AlertTriangle, Loader2, Play, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import {
   assignedPlayers,
+  canStartMatch,
+  paschenMatchLabel,
   validatePaschenScores,
   type PaschenMatchDto,
   type PaschenPlayerScoreRequest,
@@ -20,22 +22,30 @@ import {
 
 interface PaschenResultDialogProps {
   match: PaschenMatchDto | null;
+  /** Überschreibt die Standardbezeichnung im Titel (z. B. "Halbfinale 1"). */
+  label?: string;
   advancersPerMatch: number;
   eliminationScore: number;
   submitting: boolean;
   serverError?: string | null;
   onClose: () => void;
   onSubmit: (scores: PaschenPlayerScoreRequest[]) => void;
+  /** Optional – ohne Handler wird kein Starten-Button angezeigt. */
+  onStart?: (match: PaschenMatchDto) => void;
+  starting?: boolean;
 }
 
 export function PaschenResultDialog({
   match,
+  label,
   advancersPerMatch,
   eliminationScore,
   submitting,
   serverError,
   onClose,
   onSubmit,
+  onStart,
+  starting = false,
 }: PaschenResultDialogProps) {
   const players = useMemo(
     () => (match ? assignedPlayers(match) : []),
@@ -53,7 +63,10 @@ export function PaschenResultDialog({
         player.points !== null ? String(player.points) : "";
     }
     setPoints(initial);
-  }, [match]);
+    // Nur bei Match-Wechsel zurücksetzen – ein Statuswechsel (Starten) soll
+    // bereits eingetippte Punkte nicht verwerfen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [match?.id]);
 
   const allFilled = players.every(
     (p) => (points[p.participantId!] ?? "").trim() !== "",
@@ -90,8 +103,14 @@ export function PaschenResultDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            Ergebnis erfassen{match ? ` – Spiel ${match.matchCode}` : ""}
+          <DialogTitle className="flex items-center gap-2">
+            Ergebnis erfassen{match ? ` – ${label ?? paschenMatchLabel(match)}` : ""}
+            {match?.status === "InProgress" && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-victora-secondary/15 px-2 py-0.5 text-xs font-semibold text-victora-secondary">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-victora-secondary" />
+                Läuft
+              </span>
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -175,6 +194,20 @@ export function PaschenResultDialog({
           <Button variant="outline" onClick={onClose} disabled={submitting}>
             Abbrechen
           </Button>
+          {match && onStart && canStartMatch(match) && (
+            <Button
+              variant="secondary"
+              onClick={() => onStart(match)}
+              disabled={starting || submitting}
+            >
+              {starting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="mr-2 h-4 w-4" />
+              )}
+              Starten
+            </Button>
+          )}
           <Button
             disabled={!canSubmit}
             onClick={() => onSubmit(scores)}
@@ -187,4 +220,3 @@ export function PaschenResultDialog({
     </Dialog>
   );
 }
-

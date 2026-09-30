@@ -67,6 +67,54 @@ export interface AssignRandomPaschenResponse {
   phase: PaschenPhaseResponse;
 }
 
+/**
+ * Body für POST .../phases/{phaseId}/brackets/initialize. Alle Felder optional –
+ * das Backend verwendet die beim Anlegen der Phase gespeicherte Konfiguration.
+ */
+export type InitializePaschenBracketsRequest = Record<string, never>;
+
+export interface InitializePaschenBracketsResponse {
+  /** true = Struktur wurde durch diesen Aufruf angelegt, false = existierte bereits (No-op). */
+  created: boolean;
+  phase: PaschenPhaseResponse;
+}
+
+/** Body für POST .../participants/{participantId}/assign-random. */
+export interface AssignPaschenParticipantRandomlyRequest {
+  /** Optional – macht den Tie-Break zwischen gleich belegten Bäumen reproduzierbar. */
+  seed?: number | null;
+}
+
+/** Antwort der Einzel-Auslosung eines Starts. */
+export interface PaschenSingleAssignmentResponse {
+  /** Turnier-Start (Registrierungs-participantId), nicht die Login-User-ID. */
+  participantId: string;
+  bracketId: string;
+  bracketIndex: number;
+  matchId: string;
+  slotPosition: number;
+  phase: PaschenPhaseResponse;
+}
+
+/** Body für POST .../phases/{phaseId}/draw/finalize (optional). */
+export interface FinalizePaschenDrawRequest {
+  /** Verteilt die Spieler der Runde 1 neu, um Freilose/Leerspiele zu minimieren. */
+  rebalance?: boolean;
+}
+
+/**
+ * Antwort von draw/finalize. Danach ist die Phase "InProgress" und es ist
+ * keine Auslosung mehr möglich. Slot-Positionen der Runde 1 können sich durch
+ * `rebalance` geändert haben – immer aus `phase` neu rendern.
+ */
+export interface FinalizePaschenDrawResponse {
+  assignedParticipants: number;
+  freeSlots: number;
+  byeMatches: number;
+  cancelledMatches: number;
+  phase: PaschenPhaseResponse;
+}
+
 export interface PaschenPlayerScoreRequest {
   participantId: string;
   points: number;
@@ -105,7 +153,8 @@ export interface PaschenMatchDto {
   round: number;
   matchNumber: number;
   status: PaschenMatchStatus;
-  matchCode: string;
+  /** Kann bei Paschen fehlen/null sein – für Anzeige `paschenMatchLabel` verwenden. */
+  matchCode: string | null;
   bracketId: string | null;
   players: PaschenMatchPlayer[];
   /** Bei Paschen immer null – es gibt keine Sätze. */
@@ -204,6 +253,92 @@ export function assignedPlayers(match: PaschenMatchDto): PaschenMatchPlayer[] {
   return match.players.filter((p) => p.participantId !== null);
 }
 
+/** Lesbare Bezeichnung – fällt auf Runde/Spielnummer zurück, wenn matchCode fehlt. */
+export function paschenMatchLabel(match: PaschenMatchDto): string {
+  const code = match.matchCode?.trim();
+  if (code && code.toLowerCase() !== "null") return code;
+  return `Runde ${match.round} · Spiel ${match.matchNumber}`;
+}
+
+/**
+ * Name einer Finalbaum-Runde, gezählt vom Finale rückwärts:
+ * letzte Runde = "Finale", davor "Halbfinale", "Viertelfinale", "Achtelfinale".
+ */
+export function paschenFinalRoundName(round: number, maxRound: number): string {
+  switch (maxRound - round) {
+    case 0:
+      return "Finale";
+    case 1:
+      return "Halbfinale";
+    case 2:
+      return "Viertelfinale";
+    case 3:
+      return "Achtelfinale";
+    default:
+      return `Finalrunde ${round}`;
+  }
+}
+
+/** Höchste Runde im Finalbaum (0, wenn leer). */
+export function paschenFinalMaxRound(
+  finalMatches: { round: number }[],
+): number {
+  return finalMatches.reduce((max, m) => Math.max(max, m.round), 0);
+}
+
+/**
+ * matchId → Bezeichnung für alle Finalbaum-Spiele, z. B. "Halbfinale 1",
+ * "Halbfinale 2", "Finale". Mehrere Spiele einer Runde werden nach
+ * Spielnummer durchnummeriert, ein einzelnes Spiel bleibt ohne Nummer.
+ */
+export function buildPaschenFinalLabels(
+  finalMatches: PaschenMatchDto[],
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  const maxRound = paschenFinalMaxRound(finalMatches);
+  const byRound = new Map<number, PaschenMatchDto[]>();
+  for (const match of finalMatches) {
+    const bucket = byRound.get(match.round);
+    if (bucket) bucket.push(match);
+    else byRound.set(match.round, [match]);
+  }
+  for (const [round, list] of byRound) {
+    const name = paschenFinalRoundName(round, maxRound);
+    const sorted = [...list].sort((a, b) => a.matchNumber - b.matchNumber);
+    sorted.forEach((match, index) => {
+      labels.set(match.id, sorted.length > 1 ? `${name} ${index + 1}` : name);
+    });
+  }
+  return labels;
+}
+
+/**
+ * matchId → Bezeichnung für alle Spiele einer Phase.
+ * Baumspiele: "Baum 2 · Runde 1 · Spiel 3", Finalbaum: "Halbfinale 1" / "Finale".
+ */
+export function buildPaschenMatchLabels(
+  phase: Pick<PaschenPhaseResponse, "brackets" | "finalMatches">,
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const bracket of phase.brackets) {
+    for (const match of bracket.matches) {
+      labels.set(
+        match.id,
+        `Baum ${bracket.bracketIndex + 1} · Runde ${match.round} · Spiel ${match.matchNumber}`,
+      );
+    }
+  }
+  for (const [id, label] of buildPaschenFinalLabels(phase.finalMatches)) {
+    labels.set(id, label);
+  }
+  return labels;
+}
+
+/** Starten nur bei Status "Scheduled" und mindestens 2 besetzten Slots. */
+export function canStartMatch(match: PaschenMatchDto): boolean {
+  return match.status === "Scheduled" && assignedPlayers(match).length >= 2;
+}
+
 /** Ein Ergebnis ist erfasst, sobald mindestens ein Spieler Punkte hat. */
 export function hasResult(match: PaschenMatchDto): boolean {
   return match.players.some((p) => p.points !== null);
@@ -218,13 +353,28 @@ export function orderedPlayers(match: PaschenMatchDto): PaschenMatchPlayer[] {
   return players.sort((a, b) => (a.points ?? 0) - (b.points ?? 0));
 }
 
-/** Zählt als erledigt – Freilose bleiben sonst optisch für immer offen. */
+/** Zählt als erledigt – Freilose/entfallene Spiele bleiben sonst optisch für immer offen. */
 export function isMatchDone(match: PaschenMatchDto): boolean {
   return (
     match.status === "Completed" ||
     match.status === "Bye" ||
-    match.status === "Walkover"
+    match.status === "Walkover" ||
+    match.status === "Cancelled"
   );
+}
+
+/**
+ * Die Rangliste ist erst aussagekräftig, wenn auch das Finale vorbei ist:
+ * Phase abgeschlossen oder Finalbaum komplett erfasst.
+ */
+export function isPaschenPhaseFinished(phase: {
+  status: string;
+  isMerged: boolean;
+  finalMatches?: PaschenMatchDto[];
+}): boolean {
+  if (phase.status === "Completed") return true;
+  const finals = phase.finalMatches ?? [];
+  return phase.isMerged && finals.length > 0 && finals.every(isMatchDone);
 }
 
 export interface RoundProgress {

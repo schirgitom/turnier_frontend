@@ -12,17 +12,21 @@ import {
 import { PaschenRankingTable } from "./PaschenRankingTable";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { isMatchDone, type PaschenMatchDto, type PaschenPhaseResponse } from "@/types/paschen";
+import {
+  buildPaschenFinalLabels,
+  isMatchDone,
+  isPaschenPhaseFinished,
+  paschenFinalMaxRound,
+  paschenFinalRoundName,
+  type PaschenMatchDto,
+  type PaschenPhaseResponse,
+} from "@/types/paschen";
 
 const FINAL_TAB = "final";
 const RANKING_TAB = "ranking";
 
 function treeRoundLabel(round: number): string {
   return `Baum-Runde ${round}`;
-}
-
-function finalRoundLabel(round: number, isLast: boolean): string {
-  return isLast ? "Finale" : `Finalrunde ${round}`;
 }
 
 /**
@@ -33,15 +37,26 @@ export function PaschenPhaseView({
   tournamentId,
   phase,
   onRecord,
+  onStart,
+  startingMatchId,
 }: {
   tournamentId: string;
   phase: PaschenPhaseResponse;
   onRecord?: (match: PaschenMatchDto) => void;
+  onStart?: (match: PaschenMatchDto) => void;
+  startingMatchId?: string | null;
 }) {
   const brackets = [...phase.brackets].sort(
     (a, b) => a.bracketIndex - b.bracketIndex,
   );
-  const canRecord = onRecord !== undefined;
+  const finalMaxRound = paschenFinalMaxRound(phase.finalMatches);
+  const finalLabels = useMemo(
+    () => buildPaschenFinalLabels(phase.finalMatches),
+    [phase.finalMatches],
+  );
+  const canRecord = onRecord !== undefined && phase.status !== "Pending";
+  // Rangliste ergibt beim Paschen erst nach dem Finale Sinn.
+  const showRanking = isPaschenPhaseFinished(phase);
 
   // Mehrere Starts pro Person: aus dem Roster (userId + registeredAt) eine
   // participantId → Start-Nummer Zuordnung bauen, um im Baum "(Start N)" zu zeigen.
@@ -55,6 +70,16 @@ export function PaschenPhaseView({
     () => buildStartNumbers(registrations?.registrations ?? []),
     [registrations?.registrations],
   );
+  const participantNames = useMemo(
+    () =>
+      new Map(
+        (registrations?.registrations ?? []).map((registration) => [
+          registration.participantId,
+          registration.participantDisplayName,
+        ]),
+      ),
+    [registrations?.registrations],
+  );
 
   const [tab, setTab] = useState<string>(
     brackets[0] ? String(brackets[0].bracketIndex) : RANKING_TAB,
@@ -65,10 +90,26 @@ export function PaschenPhaseView({
     if (phase.isMerged) setTab(FINAL_TAB);
   }, [phase.isMerged]);
 
+  // Nach dem Finale auf die Rangliste springen; ohne Rangliste nicht darauf stehen bleiben.
+  useEffect(() => {
+    if (showRanking) {
+      setTab(RANKING_TAB);
+    } else {
+      setTab((current) =>
+        current === RANKING_TAB
+          ? phase.isMerged
+            ? FINAL_TAB
+            : String(brackets[0]?.bracketIndex ?? 0)
+          : current,
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showRanking]);
+
   const { data: ranking, isLoading: rankingLoading } = useQuery({
     queryKey: ["paschenRanking", tournamentId, phase.id],
     queryFn: () => getPaschenRanking(tournamentId, phase.id),
-    enabled: tab === RANKING_TAB && phase.status !== "Pending",
+    enabled: tab === RANKING_TAB && showRanking,
   });
 
   if (brackets.length === 0) {
@@ -100,7 +141,9 @@ export function PaschenPhaseView({
           {phase.isMerged && (
             <TabsTrigger value={FINAL_TAB}>Finalbaum</TabsTrigger>
           )}
-          <TabsTrigger value={RANKING_TAB}>Rangliste</TabsTrigger>
+          {showRanking && (
+            <TabsTrigger value={RANKING_TAB}>Rangliste</TabsTrigger>
+          )}
         </TabsList>
 
         {brackets.map((bracket) => (
@@ -126,6 +169,7 @@ export function PaschenPhaseView({
                 finalists={bracket.finalists}
                 bracketIndex={bracket.bracketIndex}
                 startNumbers={startNumbers}
+                participantNames={participantNames}
               />
             )}
 
@@ -134,8 +178,11 @@ export function PaschenPhaseView({
               playersPerMatch={phase.playersPerMatch}
               canRecord={canRecord}
               onRecord={onRecord}
+              onStart={onStart}
+              startingMatchId={startingMatchId}
               roundLabel={treeRoundLabel}
               startNumbers={startNumbers}
+              participantNames={participantNames}
             />
           </TabsContent>
         ))}
@@ -157,17 +204,23 @@ export function PaschenPhaseView({
                   playersPerMatch={phase.playersPerMatch}
                   canRecord={canRecord}
                   onRecord={onRecord}
-                  roundLabel={finalRoundLabel}
+                  onStart={onStart}
+                  startingMatchId={startingMatchId}
+                  roundLabel={(round) => paschenFinalRoundName(round, finalMaxRound)}
+                  matchLabel={(match) => finalLabels.get(match.id)}
                   startNumbers={startNumbers}
+                  participantNames={participantNames}
                 />
               </>
             )}
           </TabsContent>
         )}
 
-        <TabsContent value={RANKING_TAB}>
-          <PaschenRankingTable data={ranking} isLoading={rankingLoading} />
-        </TabsContent>
+        {showRanking && (
+          <TabsContent value={RANKING_TAB}>
+            <PaschenRankingTable data={ranking} isLoading={rankingLoading} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

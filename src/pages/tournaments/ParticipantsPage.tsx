@@ -21,7 +21,9 @@ import {
   UserMinus,
   LogIn,
   Wand2,
+  Shuffle,
   Settings2,
+  LayoutGrid,
 } from "lucide-react";
 import {
   getRegistrations,
@@ -33,8 +35,17 @@ import {
   bulkCreateRegistration,
 } from "@/api/registrations";
 import { getParticipants, getParticipant, createParticipant } from "@/api/participants";
+import { getPhases } from "@/api/phases";
+import {
+  assignPaschenParticipantRandomly,
+  assignRandomPaschenPhase,
+  getPaschenPhase,
+  initializePaschenBrackets,
+} from "@/api/paschen";
 import { updateTournament } from "@/api/tournaments";
 import type { ParticipantDto, ParticipantListItem } from "@/types/participant";
+import { isPaschenPhase } from "@/types/phase";
+import type { PaschenPhaseResponse } from "@/types/paschen";
 import { EditParticipantDialog } from "@/components/participants/EditParticipantDialog";
 import { getApiErrorMessage } from "@/api/client";
 import type { TournamentDto } from "@/types/tournament";
@@ -66,6 +77,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const createSchema = z.object({
   firstName: z.string().min(1, "Vorname ist erforderlich"),
@@ -103,11 +121,123 @@ const statusConfig: Record<
   Withdrawn: { label: "Zurückgezogen", className: "bg-[#D94E5F] text-white border-transparent" },
 };
 
+type PaschenStatusFilter =
+  | "all"
+  | "active"
+  | "eliminated"
+  | "unassigned"
+  | "withdrawn"
+  | "completed"
+  | "unknown";
+type PaschenRosterStatus = Exclude<PaschenStatusFilter, "all">;
+
+interface PaschenParticipantState {
+  bracketIds: Set<string>;
+  bracketIndexes: Set<number>;
+  inFinalTree: boolean;
+  eliminated: boolean;
+}
+
+const paschenRosterStatusConfig: Record<
+  Exclude<PaschenRosterStatus, "unknown" | "all">,
+  { label: string; className: string }
+> = {
+  active: { label: "Im Turnier", className: "border-transparent bg-[#3FA97B] text-white" },
+  eliminated: { label: "Ausgeschieden", className: "border-transparent bg-[#D94E5F] text-white" },
+  unassigned: { label: "Nicht zugeordnet", className: "border-transparent bg-muted text-muted-foreground" },
+  withdrawn: { label: "Zurückgezogen", className: "border-transparent bg-muted text-muted-foreground" },
+  completed: { label: "Turnier beendet", className: "border-transparent bg-muted text-muted-foreground" },
+};
+
+function buildPaschenParticipantStates(
+  phase: PaschenPhaseResponse | undefined,
+): Map<string, PaschenParticipantState> {
+  const states = new Map<string, PaschenParticipantState>();
+  if (!phase) return states;
+
+  const addPlayer = (
+    participantId: string | null,
+    bracketId: string | null,
+    bracketIndex: number | null,
+    inFinalTree: boolean,
+    advances: boolean | null,
+  ) => {
+    if (!participantId) return;
+    const state = states.get(participantId) ?? {
+      bracketIds: new Set<string>(),
+      bracketIndexes: new Set<number>(),
+      inFinalTree: false,
+      eliminated: false,
+    };
+    if (bracketId) state.bracketIds.add(bracketId);
+    if (bracketIndex !== null) state.bracketIndexes.add(bracketIndex);
+    if (inFinalTree) state.inFinalTree = true;
+    if (advances === false) state.eliminated = true;
+    states.set(participantId, state);
+  };
+
+  for (const bracket of phase.brackets ?? []) {
+    for (const finalist of bracket.finalists ?? []) {
+      addPlayer(finalist.participantId, bracket.id, bracket.bracketIndex, false, null);
+    }
+    for (const match of bracket.matches ?? []) {
+      for (const player of match.players ?? []) {
+        addPlayer(
+          player.participantId,
+          bracket.id,
+          bracket.bracketIndex,
+          false,
+          player.advances,
+        );
+      }
+    }
+  }
+
+  for (const match of phase.finalMatches ?? []) {
+    for (const player of match.players ?? []) {
+      addPlayer(player.participantId, null, null, true, player.advances);
+    }
+  }
+
+  return states;
+}
+
+function getPaschenRosterStatus(
+  registrationStatus: string,
+  state: PaschenParticipantState | undefined,
+  dataReady: boolean,
+  phaseCompleted: boolean,
+): PaschenRosterStatus {
+  if (registrationStatus === "Withdrawn") return "withdrawn";
+  if (!dataReady) return "unknown";
+  if (!state || (state.bracketIds.size === 0 && !state.inFinalTree)) {
+    return "unassigned";
+  }
+  if (state.eliminated) return "eliminated";
+  return phaseCompleted ? "completed" : "active";
+}
+
+function formatPaschenTree(state: PaschenParticipantState | undefined): string {
+  if (!state || state.bracketIds.size === 0) {
+    return state?.inFinalTree ? "Finalbaum" : "–";
+  }
+
+  const trees = [...state.bracketIndexes]
+    .sort((a, b) => a - b)
+    .map((index) => `Baum ${index + 1}`);
+  const label = trees.length > 0 ? trees.join(", ") : "Baum zugeordnet";
+  const hasMultipleAssignments =
+    state.bracketIds.size > 1 || state.bracketIndexes.size > 1;
+
+  return `${hasMultipleAssignments ? "Mehrfachzuordnung: " : ""}${label}${state.inFinalTree ? " · Finalbaum" : ""}`;
+}
+
 export function ParticipantsPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const { tournament } = useOutletContext<{
     tournament: TournamentDto | undefined;
   }>();
+  const isPaschen = tournament?.sportCode === "paschen";
   const queryClient = useQueryClient();
 
   const regQueryKey = ["registrations", tournamentId];
@@ -115,6 +245,10 @@ export function ParticipantsPage() {
   // --- State ---
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [paschenPhaseId, setPaschenPhaseId] = useState("");
+  const [paschenStatusFilter, setPaschenStatusFilter] =
+    useState<PaschenStatusFilter>("all");
+  const [paschenTreeFilter, setPaschenTreeFilter] = useState("all");
 
   // Sort state for registrations table
   const [sortColumn, setSortColumn] = useState<"name" | null>(null);
@@ -165,8 +299,128 @@ export function ParticipantsPage() {
     enabled: !!tournamentId,
   });
 
-  const registrations = data?.registrations ?? [];
+  const {
+    data: phasesData,
+    isLoading: phasesLoading,
+    isSuccess: phasesLoaded,
+    isError: phasesError,
+  } = useQuery({
+    queryKey: ["phases", tournamentId],
+    queryFn: () => getPhases(tournamentId!),
+    enabled: isPaschen && !!tournamentId,
+  });
+
+  const paschenPhases = useMemo(
+    () =>
+      (phasesData?.phases ?? [])
+        .filter(isPaschenPhase)
+        .sort((a, b) => a.phaseOrder - b.phaseOrder),
+    [phasesData?.phases],
+  );
+  const defaultPaschenPhase =
+    [...paschenPhases].reverse().find((phase) => phase.status === "InProgress") ??
+    paschenPhases[paschenPhases.length - 1];
+  const selectedPaschenPhase =
+    paschenPhases.find((phase) => phase.id === paschenPhaseId) ??
+    defaultPaschenPhase;
+
+  const {
+    data: paschenPhase,
+    isLoading: paschenPhaseLoading,
+    isSuccess: paschenPhaseLoaded,
+    isError: paschenPhaseError,
+  } = useQuery({
+    queryKey: ["paschenPhase", tournamentId, selectedPaschenPhase?.id],
+    queryFn: () => getPaschenPhase(tournamentId!, selectedPaschenPhase!.id),
+    enabled: isPaschen && !!tournamentId && !!selectedPaschenPhase,
+  });
+
+  const randomPaschenDrawMutation = useMutation({
+    mutationFn: () =>
+      assignRandomPaschenPhase(
+        tournamentId!,
+        selectedPaschenPhase!.id,
+      ),
+    onSuccess: (result) => {
+      queryClient.setQueryData(
+        ["paschenPhase", tournamentId, result.phase.id],
+        result.phase,
+      );
+      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+      queryClient.invalidateQueries({
+        queryKey: ["paschenRanking", tournamentId, result.phase.id],
+      });
+      toast.success(
+        `Bäume zufällig ausgelost (${result.trees.length} Bäume, Seed: ${result.seed}).`,
+      );
+    },
+    onError: (error) => toast.error(getApiErrorMessage(error)),
+  });
+
+  const applyPaschenPhase = (phase: PaschenPhaseResponse) => {
+    queryClient.setQueryData(["paschenPhase", tournamentId, phase.id], phase);
+    queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+    queryClient.invalidateQueries({
+      queryKey: ["paschenRanking", tournamentId, phase.id],
+    });
+  };
+
+  const initializePaschenMutation = useMutation({
+    mutationFn: () =>
+      initializePaschenBrackets(tournamentId!, selectedPaschenPhase!.id),
+    onSuccess: (result) => {
+      applyPaschenPhase(result.phase);
+      toast.success(
+        result.created
+          ? "Leere Bäume angelegt – Starts können jetzt einzeln ausgelost werden."
+          : "Bäume existierten bereits – nichts geändert.",
+      );
+    },
+    onError: (error) => toast.error(getApiErrorMessage(error)),
+  });
+
+  const assignSinglePaschenMutation = useMutation({
+    mutationFn: (participantId: string) =>
+      assignPaschenParticipantRandomly(
+        tournamentId!,
+        selectedPaschenPhase!.id,
+        participantId,
+      ),
+    onSuccess: (result) => {
+      applyPaschenPhase(result.phase);
+      toast.success(`Start in Baum ${result.bracketIndex + 1} ausgelost.`);
+    },
+    onError: (error) => toast.error(getApiErrorMessage(error)),
+  });
+
+  const registrations = useMemo(
+    () => data?.registrations ?? [],
+    [data?.registrations],
+  );
   const activeCount = registrations.filter((r) => r.status !== "Withdrawn").length;
+  const paschenDataReady =
+    phasesLoaded && (!selectedPaschenPhase || paschenPhaseLoaded);
+  const paschenDataUnavailable = phasesError || paschenPhaseError;
+  const paschenDataLoading = phasesLoading || paschenPhaseLoading;
+  const paschenStates = useMemo(
+    () => buildPaschenParticipantStates(paschenPhase),
+    [paschenPhase],
+  );
+
+  const paschenTreeIndexes = useMemo(() => {
+    const indexes = new Set<number>();
+    for (const bracket of paschenPhase?.brackets ?? []) {
+      indexes.add(bracket.bracketIndex);
+    }
+    for (const state of paschenStates.values()) {
+      for (const index of state.bracketIndexes) indexes.add(index);
+    }
+    return [...indexes].sort((a, b) => a - b);
+  }, [paschenPhase, paschenStates]);
+
+  useEffect(() => {
+    setPaschenTreeFilter("all");
+  }, [selectedPaschenPhase?.id]);
 
   // Mehrere Starts pro Person: participantId → Start-Nummer (nur für Personen
   // mit ≥ 2 Starts). Damit wird "(Start N)" im Roster angezeigt.
@@ -300,6 +554,117 @@ export function ParticipantsPage() {
       return dir * a.participantDisplayName.localeCompare(b.participantDisplayName, "de");
     });
   }, [registrations, sortColumn, sortDirection]);
+
+  const visibleRegistrations = useMemo(() => {
+    if (!isPaschen) return sortedRegistrations;
+
+    return sortedRegistrations.filter((registration) => {
+      const state = paschenStates.get(registration.participantId);
+      const rosterStatus = getPaschenRosterStatus(
+        registration.status,
+        state,
+        paschenDataReady,
+        paschenPhase?.status === "Completed",
+      );
+      if (
+        paschenStatusFilter !== "all" &&
+        rosterStatus !== paschenStatusFilter
+      ) {
+        return false;
+      }
+
+      if (paschenTreeFilter !== "all") {
+        if (paschenTreeFilter === "final") {
+          return state?.inFinalTree ?? false;
+        }
+        return state?.bracketIndexes.has(Number(paschenTreeFilter)) ?? false;
+      }
+      return true;
+    });
+  }, [
+    sortedRegistrations,
+    isPaschen,
+    paschenStates,
+    paschenDataReady,
+    paschenPhase?.status,
+    paschenStatusFilter,
+    paschenTreeFilter,
+  ]);
+
+  // Gestaffelter Paschen-Ablauf: Bäume sind angelegt, Phase noch "Pending".
+  // Detailstatus bevorzugen – er ist nach draw/finalize sofort aktuell.
+  const paschenPhaseStatus = paschenPhase?.status ?? selectedPaschenPhase?.status;
+  const paschenBracketsInitialized =
+    (paschenPhase?.brackets.length ?? 0) > 0;
+  const canAssignPaschenStarts =
+    isPaschen &&
+    paschenDataReady &&
+    !paschenDataUnavailable &&
+    paschenPhaseStatus === "Pending" &&
+    paschenBracketsInitialized;
+
+  const isPaschenAssignable = (registration: { status: string; participantId: string }) =>
+    canAssignPaschenStarts &&
+    (registration.status === "Confirmed" || registration.status === "CheckedIn") &&
+    getPaschenRosterStatus(
+      registration.status,
+      paschenStates.get(registration.participantId),
+      paschenDataReady,
+      false,
+    ) === "unassigned";
+
+  const unassignedPaschenStarts = registrations.filter(isPaschenAssignable);
+
+  const [bulkAssignProgress, setBulkAssignProgress] = useState<
+    { done: number; total: number } | null
+  >(null);
+
+  // Lost alle offenen Starts nacheinander einzeln aus. Sequentiell, damit das
+  // Backend die Personen-Regel (Mehrfachstarts in verschiedenen Bäumen) und
+  // die Baumbelegung für jeden Schritt korrekt berücksichtigt.
+  const handleAssignAllPaschen = async () => {
+    if (!tournamentId || !selectedPaschenPhase) return;
+    const targets = [...unassignedPaschenStarts];
+    if (targets.length === 0) return;
+
+    setBulkAssignProgress({ done: 0, total: targets.length });
+    let success = 0;
+    const failures: string[] = [];
+    let lastPhase: PaschenPhaseResponse | null = null;
+
+    for (const [index, registration] of targets.entries()) {
+      try {
+        const result = await assignPaschenParticipantRandomly(
+          tournamentId,
+          selectedPaschenPhase.id,
+          registration.participantId,
+        );
+        lastPhase = result.phase;
+        queryClient.setQueryData(
+          ["paschenPhase", tournamentId, result.phase.id],
+          result.phase,
+        );
+        success += 1;
+      } catch (error) {
+        failures.push(
+          `${registration.participantDisplayName}: ${getApiErrorMessage(error)}`,
+        );
+      }
+      setBulkAssignProgress({ done: index + 1, total: targets.length });
+    }
+
+    if (lastPhase) applyPaschenPhase(lastPhase);
+    setBulkAssignProgress(null);
+
+    if (success > 0) {
+      toast.success(`${success} Start${success === 1 ? "" : "s"} ausgelost.`);
+    }
+    if (failures.length > 0) {
+      toast.error(
+        `${failures.length} Start${failures.length === 1 ? "" : "s"} konnten nicht ausgelost werden. ${failures[0]}`,
+      );
+    }
+  };
 
   const toggleSort = () => {
     if (sortColumn !== "name") {
@@ -620,9 +985,166 @@ export function ParticipantsPage() {
         </div>
       </div>
 
-      {sortedRegistrations.length === 0 ? (
+      {isPaschen && (
+        <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-end gap-3">
+            {paschenPhases.length > 1 && (
+              <div className="w-full space-y-1 sm:w-56">
+                <Label className="text-xs">Paschen-Phase</Label>
+                <Select
+                  value={selectedPaschenPhase?.id ?? ""}
+                  onValueChange={setPaschenPhaseId}
+                >
+                  <SelectTrigger aria-label="Paschen-Phase auswählen">
+                    <SelectValue placeholder="Phase auswählen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {paschenPhases.map((phase) => (
+                      <SelectItem key={phase.id} value={phase.id}>
+                        {phase.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="w-full space-y-1 sm:w-52">
+              <Label className="text-xs">Turnierstatus</Label>
+              <Select
+                value={paschenStatusFilter}
+                onValueChange={(value) =>
+                  setPaschenStatusFilter(value as PaschenStatusFilter)
+                }
+              >
+                <SelectTrigger aria-label="Nach Turnierstatus filtern">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Alle Status</SelectItem>
+                  <SelectItem value="active">Noch im Turnier</SelectItem>
+                  <SelectItem value="eliminated">Ausgeschieden</SelectItem>
+                  <SelectItem value="unassigned">Nicht zugeordnet</SelectItem>
+                  <SelectItem value="withdrawn">Zurückgezogen</SelectItem>
+                  <SelectItem value="completed">Turnier beendet</SelectItem>
+                  <SelectItem value="unknown">Status unbekannt</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-full space-y-1 sm:w-44">
+              <Label className="text-xs">Baum</Label>
+              <Select value={paschenTreeFilter} onValueChange={setPaschenTreeFilter}>
+                <SelectTrigger aria-label="Nach Baum filtern">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Alle Bäume</SelectItem>
+                  {paschenTreeIndexes.map((index) => (
+                    <SelectItem key={index} value={String(index)}>
+                      Baum {index + 1}
+                    </SelectItem>
+                  ))}
+                  {paschenPhase?.isMerged && (
+                    <SelectItem value="final">Finalbaum</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            {paschenPhaseStatus === "Pending" &&
+              paschenPhaseLoaded &&
+              !paschenBracketsInitialized && (
+                <div className="ml-auto flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => initializePaschenMutation.mutate()}
+                    disabled={
+                      initializePaschenMutation.isPending ||
+                      randomPaschenDrawMutation.isPending
+                    }
+                    title="Legt alle Bäume mit Runden, Matches und leeren Slots an. Danach werden die Starts einzeln zufällig ausgelost."
+                  >
+                    {initializePaschenMutation.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <LayoutGrid className="mr-2 h-4 w-4" />
+                    )}
+                    Leeren Turnierbaum anlegen
+                  </Button>
+                  <Button
+                    onClick={() => randomPaschenDrawMutation.mutate()}
+                    disabled={
+                      randomPaschenDrawMutation.isPending ||
+                      initializePaschenMutation.isPending
+                    }
+                    title="Lost alle bestätigten Starts in einem Schritt zufällig auf die Paschen-Bäume aus."
+                  >
+                    {randomPaschenDrawMutation.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Shuffle className="mr-2 h-4 w-4" />
+                    )}
+                    {randomPaschenDrawMutation.isPending
+                      ? "Wird ausgelost …"
+                      : "Alle auf einmal auslosen"}
+                  </Button>
+                </div>
+              )}
+            {canAssignPaschenStarts && (
+              <Button
+                className="ml-auto"
+                onClick={() => void handleAssignAllPaschen()}
+                disabled={
+                  bulkAssignProgress !== null ||
+                  assignSinglePaschenMutation.isPending ||
+                  unassignedPaschenStarts.length === 0
+                }
+                title="Lost alle noch nicht zugeordneten Starts nacheinander zufällig in freie Slots."
+              >
+                {bulkAssignProgress ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Shuffle className="mr-2 h-4 w-4" />
+                )}
+                {bulkAssignProgress
+                  ? `Lose aus … (${bulkAssignProgress.done}/${bulkAssignProgress.total})`
+                  : `Offene Starts auslosen (${unassignedPaschenStarts.length})`}
+              </Button>
+            )}
+            <p className="pb-2 text-xs text-muted-foreground">
+              Baum und Turnierstatus werden pro Start angezeigt. Mehrfachstarts
+              können unterschiedlichen Bäumen zugeordnet sein.
+            </p>
+          </div>
+          {paschenDataLoading && (
+            <p className="text-xs text-muted-foreground">
+              Paschen-Baumdaten werden geladen …
+            </p>
+          )}
+          {paschenDataUnavailable && (
+            <p className="text-xs text-destructive" role="alert">
+              Paschen-Baumdaten konnten nicht geladen werden. Der Status wird
+              deshalb als unbekannt angezeigt.
+            </p>
+          )}
+          {phasesLoaded && !paschenDataUnavailable && !selectedPaschenPhase && (
+            <p className="text-xs text-muted-foreground">
+              Für dieses Turnier ist noch keine Paschen-Phase angelegt.
+            </p>
+          )}
+          {selectedPaschenPhase && paschenDataReady && paschenTreeIndexes.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Für diese Phase wurden noch keine Bäume ausgelost.
+            </p>
+          )}
+        </div>
+      )}
+
+      {registrations.length === 0 ? (
         <p className="py-8 text-center text-muted-foreground">
           Noch keine Teilnehmer registriert.
+        </p>
+      ) : visibleRegistrations.length === 0 ? (
+        <p className="py-8 text-center text-muted-foreground">
+          Keine Starts entsprechen den ausgewählten Filtern.
         </p>
       ) : (
         <Table>
@@ -646,14 +1168,32 @@ export function ParticipantsPage() {
                   )}
                 </button>
               </TableHead>
-              <TableHead>Status</TableHead>
+              {isPaschen && <TableHead>Baum</TableHead>}
+              {isPaschen && <TableHead>Turnierstatus</TableHead>}
+              <TableHead>{isPaschen ? "Anmeldestatus" : "Status"}</TableHead>
               <TableHead className="w-48">Aktionen</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedRegistrations.map((reg) => {
+            {visibleRegistrations.map((reg) => {
               const cfg = statusConfig[reg.status];
               const isWithdrawn = reg.status === "Withdrawn";
+              const paschenState = paschenStates.get(reg.participantId);
+              const paschenRosterStatus = getPaschenRosterStatus(
+                reg.status,
+                paschenState,
+                paschenDataReady,
+                selectedPaschenPhase?.status === "Completed",
+              );
+              const paschenRosterStatusInfo =
+                paschenRosterStatus === "unknown"
+                  ? undefined
+                  : paschenRosterStatusConfig[paschenRosterStatus];
+              const paschenTreeLabel = paschenDataUnavailable
+                ? "Nicht verfügbar"
+                : !paschenDataReady
+                  ? "Wird geladen …"
+                  : formatPaschenTree(paschenState);
               return (
                 <TableRow
                   key={reg.participantId}
@@ -672,6 +1212,24 @@ export function ParticipantsPage() {
                       )}
                     </div>
                   </TableCell>
+                  {isPaschen && (
+                    <TableCell className="whitespace-nowrap">
+                      {paschenTreeLabel}
+                    </TableCell>
+                  )}
+                  {isPaschen && (
+                    <TableCell className="whitespace-nowrap">
+                      {paschenRosterStatusInfo ? (
+                        <Badge className={paschenRosterStatusInfo.className}>
+                          {paschenRosterStatusInfo.label}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">
+                          {paschenDataUnavailable ? "Nicht verfügbar" : "Wird geladen …"}
+                        </Badge>
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell>
                     {cfg ? (
                       <Badge className={cfg.className}>{cfg.label}</Badge>
@@ -681,6 +1239,28 @@ export function ParticipantsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      {isPaschenAssignable(reg) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            assignSinglePaschenMutation.mutate(reg.participantId)
+                          }
+                          disabled={
+                            assignSinglePaschenMutation.isPending ||
+                            bulkAssignProgress !== null
+                          }
+                          title="Diesen Start zufällig in einen freien Slot eines passenden Baums losen."
+                        >
+                          {assignSinglePaschenMutation.isPending &&
+                          assignSinglePaschenMutation.variables === reg.participantId ? (
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Shuffle className="mr-1 h-3.5 w-3.5" />
+                          )}
+                          Auslosen
+                        </Button>
+                      )}
                       {!isWithdrawn && reg.status !== "CheckedIn" && (
                         <Button
                           variant="ghost"

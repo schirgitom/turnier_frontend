@@ -3,6 +3,8 @@ import { apiClient } from "./client";
 export interface RegistrationDto {
   participantId: string;
   participantDisplayName: string;
+  /** Die Person hinter dem Start; mehrere Starts können dieselbe Person teilen. */
+  userId: string | null;
   status: string;
   seedNumber: number | null;
   registeredAt: string;
@@ -16,6 +18,52 @@ export interface TournamentRegistrationsResponse {
   registrations: RegistrationDto[];
   totalConfirmed: number;
   totalCheckedIn: number;
+}
+
+function normalizeRegistrationsResponse(
+  tournamentId: string,
+  data: unknown,
+): TournamentRegistrationsResponse {
+  const fallback: TournamentRegistrationsResponse = {
+    tournamentId,
+    tournamentName: "",
+    registrations: [],
+    totalConfirmed: 0,
+    totalCheckedIn: 0,
+  };
+
+  if (!data || typeof data !== "object") return fallback;
+
+  const obj = data as {
+    tournamentId?: unknown;
+    tournamentName?: unknown;
+    registrations?: unknown;
+    items?: unknown;
+    totalConfirmed?: unknown;
+    totalCheckedIn?: unknown;
+  };
+
+  const registrations = Array.isArray(obj.registrations)
+    ? (obj.registrations as RegistrationDto[])
+    : Array.isArray(obj.items)
+      ? (obj.items as RegistrationDto[])
+      : [];
+
+  return {
+    tournamentId:
+      typeof obj.tournamentId === "string" ? obj.tournamentId : tournamentId,
+    tournamentName:
+      typeof obj.tournamentName === "string" ? obj.tournamentName : "",
+    registrations,
+    totalConfirmed:
+      typeof obj.totalConfirmed === "number"
+        ? obj.totalConfirmed
+        : registrations.filter((r) => r.status === "Confirmed").length,
+    totalCheckedIn:
+      typeof obj.totalCheckedIn === "number"
+        ? obj.totalCheckedIn
+        : registrations.filter((r) => r.isCheckedIn).length,
+  };
 }
 
 /**
@@ -50,10 +98,10 @@ export interface BulkCreateRegistrationResponse {
 export async function getRegistrations(
   tournamentId: string,
 ): Promise<TournamentRegistrationsResponse> {
-  const response = await apiClient.get<TournamentRegistrationsResponse>(
+  const response = await apiClient.get<unknown>(
     `/tournaments/${tournamentId}/registrations`,
   );
-  return response.data;
+  return normalizeRegistrationsResponse(tournamentId, response.data);
 }
 
 export async function registerParticipant(
@@ -72,6 +120,17 @@ export async function bulkRegister(
   await apiClient.post(`/tournaments/${tournamentId}/registrations/bulk`, {
     participantIds,
   });
+}
+
+export async function bulkCreateRegistration(
+  tournamentId: string,
+  data: BulkCreateRegistrationRequest,
+): Promise<BulkCreateRegistrationResponse> {
+  const response = await apiClient.post<BulkCreateRegistrationResponse>(
+    `/tournaments/${tournamentId}/registrations/bulk-create`,
+    data,
+  );
+  return response.data;
 }
 
 export async function removeRegistration(

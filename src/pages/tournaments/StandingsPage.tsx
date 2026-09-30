@@ -5,8 +5,10 @@ import { Loader2, RefreshCw, Send } from "lucide-react";
 import { toast } from "sonner";
 import { getPhases, getPhaseMatches, advancePhase } from "@/api/phases";
 import { getStandings, recalculateStandings } from "@/api/standings";
+import { getPaschenRanking } from "@/api/paschen";
 import { BracketView } from "@/components/tournament/BracketView";
-import { isGroupPhase } from "@/types/phase";
+import { PaschenRankingTable } from "@/components/tournament/PaschenRankingTable";
+import { isGroupPhase, isPaschenPhase } from "@/types/phase";
 import { isEliminationBracket } from "@/types/bracket";
 import type { GroupMatchesResponse } from "@/types/bracket";
 import { getApiErrorMessage } from "@/api/client";
@@ -52,11 +54,11 @@ export function StandingsPage() {
     enabled: !!tournamentId,
   });
 
-  const phases = phasesData?.phases ?? [];
+  const phases = useMemo(() => phasesData?.phases ?? [], [phasesData]);
   const eliminationPhaseIdsByOrder = useMemo(
     () =>
       phases
-        .filter((phase) => !isGroupPhase(phase))
+        .filter((phase) => !isGroupPhase(phase) && !isPaschenPhase(phase))
         .map((phase) => ({ id: phase.id, phaseOrder: phase.phaseOrder })),
     [phases],
   );
@@ -97,6 +99,11 @@ export function StandingsPage() {
                 phaseId={phase.id}
                 phaseOrder={phase.phaseOrder}
                 eliminationPhaseIdsByOrder={eliminationPhaseIdsByOrder}
+              />
+            ) : isPaschenPhase(phase) ? (
+              <PaschenRankingView
+                tournamentId={tournamentId!}
+                phaseId={phase.id}
               />
             ) : (
               <EliminationPhaseView
@@ -275,6 +282,28 @@ function GroupMatchesPlan({
           </Table>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── Paschen phase: final ranking table ──────────────────────────────────────
+
+function PaschenRankingView({
+  tournamentId,
+  phaseId,
+}: {
+  tournamentId: string;
+  phaseId: string;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["paschenRanking", tournamentId, phaseId],
+    queryFn: () => getPaschenRanking(tournamentId, phaseId),
+    enabled: !!tournamentId && !!phaseId,
+  });
+
+  return (
+    <div className="mt-2">
+      <PaschenRankingTable data={data} isLoading={isLoading} />
     </div>
   );
 }

@@ -228,10 +228,108 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["InviteUserResponse"];
+                        "application/json": components["schemas"]["InviteUserResponse"];
+                        "text/json": components["schemas"]["InviteUserResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unprocessable Content */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/invite/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["InvitationDetailsResponse"];
+                        "application/json": components["schemas"]["InvitationDetailsResponse"];
+                        "text/json": components["schemas"]["InvitationDetailsResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Gone */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -262,12 +360,136 @@ export interface paths {
                 };
             };
             responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthResponse"];
+                        "application/json": components["schemas"]["AuthResponse"];
+                        "text/json": components["schemas"]["AuthResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Gone */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/accept-invite/existing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["AcceptInviteExistingRequest"];
+                    "text/json": components["schemas"]["AcceptInviteExistingRequest"];
+                    "application/*+json": components["schemas"]["AcceptInviteExistingRequest"];
+                };
+            };
+            responses: {
                 /** @description OK */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["AuthResponse"];
+                        "application/json": components["schemas"]["AuthResponse"];
+                        "text/json": components["schemas"]["AuthResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Gone */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
                 };
             };
         };
@@ -304,6 +526,82 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/switch-organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["SwitchOrganizationRequest"];
+                    "text/json": components["schemas"]["SwitchOrganizationRequest"];
+                    "application/*+json": components["schemas"]["SwitchOrganizationRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthResponse"];
+                        "application/json": components["schemas"]["AuthResponse"];
+                        "text/json": components["schemas"]["AuthResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unprocessable Content */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -708,6 +1006,327 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizations/current/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["OrganizationMemberResponse"][];
+                        "application/json": components["schemas"]["OrganizationMemberResponse"][];
+                        "text/json": components["schemas"]["OrganizationMemberResponse"][];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizations/current/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["OrganizationInvitationResponse"][];
+                        "application/json": components["schemas"]["OrganizationInvitationResponse"][];
+                        "text/json": components["schemas"]["OrganizationInvitationResponse"][];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizations/current/invitations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizations/current/members/{userId}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    userId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ChangeMemberRoleRequest"];
+                    "text/json": components["schemas"]["ChangeMemberRoleRequest"];
+                    "application/*+json": components["schemas"]["ChangeMemberRoleRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["OrganizationMemberResponse"];
+                        "application/json": components["schemas"]["OrganizationMemberResponse"];
+                        "text/json": components["schemas"]["OrganizationMemberResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unprocessable Content */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizations/current/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    userId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -1206,6 +1825,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Creates a new Paschen phase. */
         post: {
             parameters: {
                 query?: never;
@@ -1245,6 +1865,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** Returns a Paschen phase with all trees, their matches and the final bracket. */
         get: {
             parameters: {
                 query?: never;
@@ -1283,6 +1904,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Builds all trees and seeds the round-1 matches with the given participants. */
         post: {
             parameters: {
                 query?: never;
@@ -1325,6 +1947,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Legacy one-shot draw: randomly draws the selected (or all confirmed) registrations
+         *     and creates the complete bracket structure in one request. Use this only before
+         *     brackets have been initialized. For the staged flow, call `brackets/initialize`
+         *     followed by `participants/{participantId}/assign-random`. Confirmed registrations
+         *     are eligible whether checked in or not; Withdrawn/Disqualified registrations are excluded.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -1348,7 +1977,22 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["PaschenRandomAssignmentResponse"];
+                        "application/json": components["schemas"]["PaschenRandomAssignmentResponse"];
+                        "text/json": components["schemas"]["PaschenRandomAssignmentResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
                 };
             };
         };
@@ -1367,6 +2011,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Merges the finished trees into a single final bracket. */
         post: {
             parameters: {
                 query?: never;
@@ -1401,6 +2046,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * Returns the final ranking table (top N, configurable per phase).
+         *     Paschen is a pure knockout format, so placements come from how far a player got;
+         *     ties within the same stage are broken by total points (fewer is better).
+         */
         get: {
             parameters: {
                 query?: {
@@ -1441,6 +2091,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Records the result of a Paschen match. Fewer points is better; the lowest scorers advance. */
         post: {
             parameters: {
                 query?: never;
@@ -1465,6 +2116,299 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournamentId}/paschen/phases/{phaseId}/brackets/initialize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Creates the empty tree/round/match/slot structure of a Paschen phase without drawing
+         *     any participants. Idempotent: repeated calls never delete existing brackets or slot
+         *     assignments. Returns `Created = true` when the structure was created by this call,
+         *     `false` when it already existed.
+         * @description Uses the phase configuration (TreeCount, ParticipantCount, PaschenRules) captured at
+         *     `POST .../paschen/phases`. Free slots show up as empty entries in the
+         *     `slots` arrays of the returned round-1 matches.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    tournamentId: string;
+                    phaseId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["InitializePaschenBracketsRequest"];
+                    "text/json": components["schemas"]["InitializePaschenBracketsRequest"];
+                    "application/*+json": components["schemas"]["InitializePaschenBracketsRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["InitializePaschenBracketsResponse"];
+                        "application/json": components["schemas"]["InitializePaschenBracketsResponse"];
+                        "text/json": components["schemas"]["InitializePaschenBracketsResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournamentId}/paschen/phases/{phaseId}/participants/{participantId}/assign-random": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Randomly draws exactly one tournament start into a free slot of a matching tree. The
+         *     `participantId` refers to the tournament participant (start), not the login user id.
+         *     The assignment is atomic: a start is never assigned twice, occupied slots are never
+         *     overwritten, and matches with a recorded result are left untouched.
+         * @description Eligibility:
+         *     <list type="bullet"><item>Only registrations in status `Confirmed` are accepted (both with and without
+         *         check-in). Withdrawn/Disqualified starts are refused with `409 Conflict`.</item><item>The person-group constraint is honoured: multiple starts of the same real person
+         *         always land in different trees. If no eligible bracket is left, `409` is returned.</item><item>If the phase is not in `Pending` status, the brackets have not been initialized
+         *         yet, the start has already been drawn, or the phase is full, the endpoint returns
+         *         `409 Conflict`.</item></list>
+         *     Optionally pass `{ "seed": 17 }` in the request body to reproduce a specific
+         *     tie-breaker choice for testing.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    tournamentId: string;
+                    phaseId: string;
+                    participantId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["AssignPaschenParticipantRandomlyRequest"];
+                    "text/json": components["schemas"]["AssignPaschenParticipantRandomlyRequest"];
+                    "application/*+json": components["schemas"]["AssignPaschenParticipantRandomlyRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PaschenSingleAssignmentResponse"];
+                        "application/json": components["schemas"]["PaschenSingleAssignmentResponse"];
+                        "text/json": components["schemas"]["PaschenSingleAssignmentResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tournaments/{tournamentId}/paschen/phases/{phaseId}/draw/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Closes the draw: every slot that is still free becomes a bye ("Freilos"). Matches with a
+         *     single player are marked `Bye` and that player advances immediately (cascading through
+         *     following rounds if needed); matches without any player are marked `Cancelled`.
+         *     Afterwards the phase is `InProgress` and no further draws are possible.
+         * @description With `{ "rebalance": true }` (default) the drawn players of each tree are re-dealt
+         *     across the round-1 matches so that single-player matches are avoided. Players never
+         *     change trees. Returns `409 Conflict` if the phase is not pending, has no brackets,
+         *     a match already started, or a tree has no participant at all.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    tournamentId: string;
+                    phaseId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["FinalizePaschenDrawRequest"];
+                    "text/json": components["schemas"]["FinalizePaschenDrawRequest"];
+                    "application/*+json": components["schemas"]["FinalizePaschenDrawRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["FinalizePaschenDrawResponse"];
+                        "application/json": components["schemas"]["FinalizePaschenDrawResponse"];
+                        "text/json": components["schemas"]["FinalizePaschenDrawResponse"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ErrorResponse"];
+                        "application/json": components["schemas"]["ErrorResponse"];
+                        "text/json": components["schemas"]["ErrorResponse"];
+                    };
                 };
             };
         };
@@ -2131,6 +3075,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Berechnet die Startzeit der KO-Phase neu und plant ausstehende Matches erneut ein.
+         *     Ohne `availableFrom` wird der Zeitpunkt automatisch aus dem Ende der Vorrunde berechnet.
+         */
         post: {
             parameters: {
                 query?: {
@@ -3517,6 +4465,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * Creates 1–3 starts (participants) for a person without an existing account
+         *     and registers all of them in the tournament at once.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -4260,6 +5212,9 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptInviteExistingRequest: {
+            token?: string | null;
+        };
         AcceptInviteRequest: {
             token?: string | null;
             password?: string | null;
@@ -4287,6 +5242,7 @@ export interface components {
             qualifiersPerGroup?: number;
             groupFormat?: string | null;
         };
+        /** @description Creates a new Paschen phase for a tournament. */
         AddPaschenPhaseRequest: {
             name?: string | null;
             /** Format: int32 */
@@ -4320,6 +5276,20 @@ export interface components {
             /** Format: int32 */
             position?: number | null;
         };
+        /**
+         * @description Request body for a single-participant random assignment. The optional seed makes the
+         *     random tie-break between equally loaded trees reproducible.
+         */
+        AssignPaschenParticipantRandomlyRequest: {
+            /** Format: int32 */
+            seed?: number | null;
+        };
+        /**
+         * @description Randomly draws participants into the trees of a Paschen phase.
+         *     When ParticipantIds is omitted, every confirmed registration of the
+         *     tournament takes part in the draw. Each participant is drawn exactly once.
+         *     Pass Seed to reproduce an earlier draw.
+         */
         AssignPaschenParticipantsRandomlyRequest: {
             participantIds?: string[] | null;
             /** Format: int32 */
@@ -4328,6 +5298,17 @@ export interface components {
         AssignSeedsRequest: {
             seeds?: components["schemas"]["SeedAssignment"][] | null;
         };
+        AuthResponse: {
+            accessToken?: string | null;
+            refreshToken?: string | null;
+            /** Format: date-time */
+            expiresAt?: string;
+            user?: components["schemas"]["UserDto"];
+        };
+        /**
+         * @description Creates N participant entries (Starts) for one person and registers all of them
+         *     in the tournament in a single operation. No user account is required.
+         */
         BulkCreateAndRegisterRequest: {
             firstName?: string | null;
             lastName?: string | null;
@@ -4338,6 +5319,7 @@ export interface components {
             phoneNumber?: string | null;
             notes?: string | null;
         };
+        /** @description All starts created and registered in one call. */
         BulkCreateAndRegisterResponse: {
             /** Format: uuid */
             tournamentId?: string;
@@ -4346,6 +5328,9 @@ export interface components {
         };
         BulkRegisterParticipantsRequest: {
             participantIds?: string[] | null;
+        };
+        ChangeMemberRoleRequest: {
+            role?: string | null;
         };
         ChangeTournamentStatusRequest: {
             action?: string | null;
@@ -4437,6 +5422,7 @@ export interface components {
             address?: string | null;
             description?: string | null;
         };
+        /** @description One created-and-registered start entry. */
         CreatedStartResponse: {
             /** Format: uuid */
             participantId?: string;
@@ -4446,6 +5432,49 @@ export interface components {
             /** Format: date-time */
             registeredAt?: string;
         };
+        ErrorResponse: {
+            title?: string | null;
+            detail?: string | null;
+            /** Format: int32 */
+            statusCode?: number;
+            errors?: {
+                [key: string]: string[];
+            } | null;
+        };
+        /**
+         * @description Request body for `POST .../paschen/phases/{phaseId}/draw/finalize`.
+         *     Rebalance (default `true`) re-deals the drawn players inside each
+         *     tree across the round-1 matches so that single-player matches (byes) are avoided.
+         *     Players never change trees, only their match/slot position within a tree.
+         */
+        FinalizePaschenDrawRequest: {
+            rebalance?: boolean;
+        };
+        /** @description Response of `POST .../paschen/phases/{phaseId}/draw/finalize`. */
+        FinalizePaschenDrawResponse: {
+            /**
+             * Format: int32
+             * @description Players sitting in round 1 after finalization.
+             */
+            assignedParticipants?: number;
+            /**
+             * Format: int32
+             * @description Round-1 slots that remained empty (byes).
+             */
+            freeSlots?: number;
+            /**
+             * Format: int32
+             * @description Matches (all rounds) with exactly one player — that player advances without playing.
+             */
+            byeMatches?: number;
+            /**
+             * Format: int32
+             * @description Matches (all rounds) without any player — they are skipped.
+             */
+            cancelledMatches?: number;
+            phase?: components["schemas"]["PaschenPhaseResponse"];
+        };
+        /** @description Builds all trees and round-1 matches from the given participants. */
         GeneratePaschenMatchesRequest: {
             participantIds?: string[] | null;
         };
@@ -4455,16 +5484,133 @@ export interface components {
             /** Format: int32 */
             startVenueIndex?: number;
         };
+        /**
+         * @description Request body for `POST .../phases/{phaseId}/brackets/initialize`. All fields are
+         *     optional; the phase's persisted configuration is used when nothing is supplied.
+         */
+        InitializePaschenBracketsRequest: Record<string, never>;
+        /**
+         * @description Response of `POST .../phases/{phaseId}/brackets/initialize`. Reports whether the
+         *     call actually created the empty structure (`true`) or whether it was already there
+         *     and the call was therefore a no-op (`false`).
+         */
+        InitializePaschenBracketsResponse: {
+            created?: boolean;
+            phase?: components["schemas"]["PaschenPhaseResponse"];
+        };
+        /** @description Antwort auf GET /api/auth/invite/{token}. */
+        InvitationDetailsResponse: {
+            organizationName?: string | null;
+            inviterName?: string | null;
+            email?: string | null;
+            role?: string | null;
+            existingUser?: boolean;
+            /** Format: date-time */
+            expiresAt?: string;
+        };
+        /** @description DisplayName ist nur erforderlich, wenn es zur E-Mail noch kein Konto gibt. */
         InviteUserRequest: {
             email?: string | null;
             displayName?: string | null;
             role?: string | null;
+        };
+        /**
+         * @description Antwort auf POST /api/auth/invite.
+         *
+         *     TournamentPlanner.Contracts.Auth.InviteUserResponse.Status: "Invited" (Einladung verschickt). Ist die Person bereits Mitglied, antwortet die API mit 409.
+         *     TournamentPlanner.Contracts.Auth.InviteUserResponse.ExistingUser: true, wenn es bereits ein Konto zur E-Mail gibt (bestimmt den Mailtext).
+         *     TournamentPlanner.Contracts.Auth.InviteUserResponse.Token wird nur in Development/Testing befüllt, sonst null.
+         */
+        InviteUserResponse: {
+            status?: string | null;
+            existingUser?: boolean;
+            email?: string | null;
+            /** Format: uuid */
+            invitationId?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            token?: string | null;
         };
         LoginRequest: {
             email?: string | null;
             password?: string | null;
             /** Format: uuid */
             organizationId?: string | null;
+        };
+        MatchDto: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            tournamentId?: string;
+            /** Format: int32 */
+            round?: number;
+            /** Format: int32 */
+            matchNumber?: number;
+            status?: string | null;
+            /** Format: uuid */
+            homeParticipantId?: string | null;
+            homeParticipantName?: string | null;
+            /** Format: uuid */
+            awayParticipantId?: string | null;
+            awayParticipantName?: string | null;
+            score?: components["schemas"]["ScoreDto"];
+            /** Format: date-time */
+            scheduledAt?: string | null;
+            /** Format: date-time */
+            startedAt?: string | null;
+            /** Format: date-time */
+            completedAt?: string | null;
+            /** Format: uuid */
+            courtId?: string | null;
+            courtName?: string | null;
+            /** Format: uuid */
+            venueId?: string | null;
+            venueName?: string | null;
+            matchCode?: string | null;
+            /** Format: uuid */
+            groupId?: string | null;
+            homeGroupCode?: string | null;
+            awayGroupCode?: string | null;
+            /** Format: uuid */
+            correctedBy?: string | null;
+            /** Format: date-time */
+            correctedAt?: string | null;
+            correctionReason?: string | null;
+            players?: components["schemas"]["MatchPlayerDto"][] | null;
+            /** Format: uuid */
+            bracketId?: string | null;
+        };
+        /**
+         * @description One participant slot of a match that has more than two players (e.g. Paschen).
+         *     Points and Advances are populated once a result exists.
+         */
+        MatchPlayerDto: {
+            /** Format: int32 */
+            slotPosition?: number;
+            /** Format: uuid */
+            participantId?: string | null;
+            participantName?: string | null;
+            /** Format: int32 */
+            points?: number | null;
+            advances?: boolean | null;
+        };
+        OrganizationInvitationResponse: {
+            /** Format: uuid */
+            id?: string;
+            email?: string | null;
+            role?: string | null;
+            invitedBy?: string | null;
+            /** Format: date-time */
+            expiresAt?: string;
+        };
+        OrganizationMemberResponse: {
+            /** Format: uuid */
+            userId?: string;
+            displayName?: string | null;
+            email?: string | null;
+            role?: string | null;
+            /** Format: date-time */
+            joinedAt?: string;
         };
         ParticipantListResponse: {
             items?: components["schemas"]["ParticipantSummaryResponse"][] | null;
@@ -4486,12 +5632,62 @@ export interface components {
             /** Format: uuid */
             personGroupId?: string | null;
         };
+        /** @description A single elimination tree within a Paschen phase. */
+        PaschenBracketDto: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: int32 */
+            bracketIndex?: number;
+            /** Format: int32 */
+            startingPlayerCount?: number;
+            /** Format: int32 */
+            rounds?: number;
+            isComplete?: boolean;
+            finalists?: string[] | null;
+            matches?: components["schemas"]["MatchDto"][] | null;
+        };
+        /** @description Full state of a Paschen phase including all trees and the merged final bracket. */
+        PaschenPhaseResponse: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            tournamentId?: string;
+            name?: string | null;
+            /** Format: int32 */
+            phaseOrder?: number;
+            status?: string | null;
+            /** Format: int32 */
+            participantCount?: number;
+            /** Format: int32 */
+            treeCount?: number;
+            /** Format: int32 */
+            playersPerMatch?: number;
+            /** Format: int32 */
+            advancersPerMatch?: number;
+            /** Format: int32 */
+            eliminationScore?: number;
+            isMerged?: boolean;
+            allBracketsComplete?: boolean;
+            brackets?: components["schemas"]["PaschenBracketDto"][] | null;
+            finalMatches?: components["schemas"]["MatchDto"][] | null;
+            /** Format: int32 */
+            finalRankingSize?: number;
+        };
+        /** @description Points scored by one participant in a Paschen match (fewer points is better). */
         PaschenPlayerScoreRequest: {
             /** Format: uuid */
             participantId?: string;
             /** Format: int32 */
             points?: number;
         };
+        /** @description Result of a random draw, including the seed required to reproduce it. */
+        PaschenRandomAssignmentResponse: {
+            /** Format: int32 */
+            seed?: number;
+            trees?: components["schemas"]["PaschenTreeAssignmentDto"][] | null;
+            phase?: components["schemas"]["PaschenPhaseResponse"];
+        };
+        /** @description Configurable Paschen rule set. Omitted values fall back to the Paschen defaults. */
         PaschenRulesRequest: {
             /** Format: int32 */
             treeCount?: number;
@@ -4505,6 +5701,32 @@ export interface components {
             eliminationScore?: number;
             /** Format: int32 */
             finalRankingSize?: number;
+        };
+        /**
+         * @description Response of `POST .../phases/{phaseId}/participants/{participantId}/assign-random`.
+         *     The `participantId` refers to the tournament start (registration participant id),
+         *     not the login user id.
+         */
+        PaschenSingleAssignmentResponse: {
+            /** Format: uuid */
+            participantId?: string;
+            /** Format: uuid */
+            bracketId?: string;
+            /** Format: int32 */
+            bracketIndex?: number;
+            /** Format: uuid */
+            matchId?: string;
+            /** Format: int32 */
+            slotPosition?: number;
+            phase?: components["schemas"]["PaschenPhaseResponse"];
+        };
+        /** @description Participants drawn into a single tree, in slot order. */
+        PaschenTreeAssignmentDto: {
+            /** Format: uuid */
+            bracketId?: string;
+            /** Format: int32 */
+            bracketIndex?: number;
+            participantIds?: string[] | null;
         };
         ProblemDetails: {
             type?: string | null;
@@ -4535,6 +5757,7 @@ export interface components {
             /** Format: int32 */
             awayPoints?: number | null;
         };
+        /** @description Submits the result of a single Paschen match. */
         RecordPaschenResultRequest: {
             playerScores?: components["schemas"]["PaschenPlayerScoreRequest"][] | null;
         };
@@ -4579,11 +5802,26 @@ export interface components {
         RevokeTokenRequest: {
             refreshToken?: string | null;
         };
+        ScoreDto: {
+            /** Format: int32 */
+            homePoints?: number;
+            /** Format: int32 */
+            awayPoints?: number;
+            sets?: components["schemas"]["SetDto"][] | null;
+        };
         SeedAssignment: {
             /** Format: uuid */
             participantId?: string;
             /** Format: int32 */
             seedNumber?: number;
+        };
+        SetDto: {
+            /** Format: int32 */
+            setNumber?: number;
+            /** Format: int32 */
+            homeScore?: number;
+            /** Format: int32 */
+            awayScore?: number;
         };
         SetScoreRequest: {
             /** Format: int32 */
@@ -4593,6 +5831,10 @@ export interface components {
         };
         SetTournamentVisibilityRequest: {
             visibility?: string | null;
+        };
+        SwitchOrganizationRequest: {
+            /** Format: uuid */
+            organizationId?: string;
         };
         UpdateDoubleParticipantRequest: {
             player1Name?: string | null;
@@ -4681,6 +5923,16 @@ export interface components {
             name?: string | null;
             address?: string | null;
             description?: string | null;
+        };
+        UserDto: {
+            /** Format: uuid */
+            id?: string;
+            email?: string | null;
+            displayName?: string | null;
+            role?: string | null;
+            /** Format: uuid */
+            organizationId?: string;
+            organizationName?: string | null;
         };
         VenueRotationConfigDto: {
             enabled?: boolean;

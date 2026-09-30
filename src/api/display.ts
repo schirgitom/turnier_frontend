@@ -1,7 +1,12 @@
-import { publicApiClient } from "./client";
+import { anonymousApiClient, publicApiClient } from "./client";
+import { normalizePaschenPhase } from "./paschen";
 import type { PublicTournamentDto } from "@/types/display";
 import type { MatchDto } from "@/types/match";
 import type { PhaseStandingsResponse } from "@/types/standings";
+import type {
+  PaschenFinalRankingResponse,
+  PaschenPhaseResponse,
+} from "@/types/paschen";
 
 function normalizeMatchesResponse(data: unknown): MatchDto[] {
   if (Array.isArray(data)) return data as MatchDto[];
@@ -45,6 +50,27 @@ export async function getPublicStandings(
 ): Promise<PhaseStandingsResponse> {
   const response = await publicApiClient.get<PhaseStandingsResponse>(
     `/public/tournaments/${tournamentId}/phases/${phaseId}/standings`,
+  );
+  return response.data;
+}
+
+/** Paschen-Phase mit Bäumen und Spielernamen – anonym, für Beamer/Info-Seite. */
+export async function getDisplayPaschenPhase(
+  tournamentId: string,
+  phaseId: string,
+): Promise<PaschenPhaseResponse> {
+  const response = await anonymousApiClient.get<PaschenPhaseResponse>(
+    `/tournaments/${tournamentId}/paschen/phases/${phaseId}`,
+  );
+  return normalizePaschenPhase(response.data);
+}
+
+export async function getDisplayPaschenRanking(
+  tournamentId: string,
+  phaseId: string,
+): Promise<PaschenFinalRankingResponse> {
+  const response = await anonymousApiClient.get<PaschenFinalRankingResponse>(
+    `/tournaments/${tournamentId}/paschen/phases/${phaseId}/ranking`,
   );
   return response.data;
 }

@@ -1,4 +1,4 @@
-import { apiClient } from "./client";
+import { anonymousApiClient, apiClient } from "./client";
 import type {
   TournamentPhasesResponse,
   PhaseResponse,
@@ -19,7 +19,7 @@ export interface AdvancePhaseResponse {
 
 const base = (tournamentId: string) => `/tournaments/${tournamentId}/phases`;
 
-function normalizePhasesResponse(data: unknown): TournamentPhasesResponse {
+export function normalizePhasesResponse(data: unknown): TournamentPhasesResponse {
   const fallback: TournamentPhasesResponse = {
     tournamentId: "",
     tournamentName: "",
@@ -67,6 +67,17 @@ export async function getPhases(
   const response = await apiClient.get<unknown>(
     base(tournamentId),
   );
+  return normalizePhasesResponse(response.data);
+}
+
+/**
+ * Anonyme Variante für Beamer/Info-Seite: kein Token, kein Login-Redirect.
+ * Der Endpunkt ist im Backend ohne [Authorize] erreichbar.
+ */
+export async function getDisplayPhases(
+  tournamentId: string,
+): Promise<TournamentPhasesResponse> {
+  const response = await anonymousApiClient.get<unknown>(base(tournamentId));
   return normalizePhasesResponse(response.data);
 }
 
@@ -251,6 +262,17 @@ export async function getPhaseMatches(
   return response.data;
 }
 
+/** Anonyme Variante von getPhaseMatches (nur Gruppen-/K.O.-Phasen, nicht Paschen). */
+export async function getDisplayPhaseMatches(
+  tournamentId: string,
+  phaseId: string,
+): Promise<PhaseMatchesResponse> {
+  const response = await anonymousApiClient.get<PhaseMatchesResponse>(
+    `${base(tournamentId)}/${phaseId}/matches`,
+  );
+  return response.data;
+}
+
 export async function reassignParticipant(
   tournamentId: string,
   phaseId: string,
@@ -272,4 +294,3 @@ export async function advancePhase(
   );
   return response.data;
 }
-

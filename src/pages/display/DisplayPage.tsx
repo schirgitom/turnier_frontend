@@ -8,15 +8,29 @@ import {
   getPublicTournament,
   getPublicMatches,
   getPublicStandings,
+  getDisplayPaschenRanking,
 } from "@/api/display";
-import { getPhases, getPhaseMatches } from "@/api/phases";
+import { getDisplayPhases, getDisplayPhaseMatches } from "@/api/phases";
 import { cn } from "@/lib/utils";
 import { MatchStatus } from "@/types/match";
 import type { MatchDto } from "@/types/match";
 import type { GroupStandings } from "@/types/standings";
-import { isGroupPhase } from "@/types/phase";
+import { isGroupPhase, isPaschenPhase } from "@/types/phase";
 import { isEliminationBracket } from "@/types/bracket";
 import type { BracketRound } from "@/types/bracket";
+import {
+  isPaschenPhaseFinished,
+  paschenFinalMaxRound,
+  paschenFinalRoundName,
+  type PaschenMatchDto,
+} from "@/types/paschen";
+import {
+  PaschenDisplayMatchCard,
+  currentRound,
+  isPaschenLikeMatch,
+  resolvePaschenPlayers,
+  usePaschenDisplayData,
+} from "./paschenDisplay";
 
 type ViewMode = "standings" | "matches";
 
@@ -35,6 +49,18 @@ type StandingsSlide =
       title: string;
       phaseTitle: string;
       round: BracketRound;
+    }
+  | {
+      kind: "paschen-round";
+      key: string;
+      title: string;
+      matches: PaschenMatchDto[];
+    }
+  | {
+      kind: "paschen-ranking";
+      key: string;
+      title: string;
+      phaseId: string;
     };
 
 function toGermanPhaseName(name: string): string {
@@ -229,7 +255,7 @@ function StandingsView({
 
   const { data: phasesData } = useQuery({
     queryKey: ["display", tournamentId, "phases"],
-    queryFn: () => getPhases(tournamentId),
+    queryFn: () => getDisplayPhases(tournamentId),
     refetchInterval: 60000,
     retry: false,
   });
@@ -238,11 +264,32 @@ function StandingsView({
   const phaseMatchesQueries = useQueries({
     queries: phases.map((phase) => ({
       queryKey: ["display", tournamentId, "phaseMatches", phase.id],
-      queryFn: () => getPhaseMatches(tournamentId, phase.id),
+      queryFn: () => getDisplayPhaseMatches(tournamentId, phase.id),
+      enabled: !isPaschenPhase(phase),
       refetchInterval: 30000,
       retry: false,
     })),
   });
+
+  const paschen = usePaschenDisplayData(tournamentId, phases, "display");
+
+  const rankingPhaseIds = paschen.paschenPhases
+    .filter((p) => isPaschenPhaseFinished(p))
+    .map((p) => p.id);
+  const rankingQueries = useQueries({
+    queries: rankingPhaseIds.map((phaseId) => ({
+      queryKey: ["display", tournamentId, "paschenRanking", phaseId],
+      queryFn: () => getDisplayPaschenRanking(tournamentId, phaseId),
+      refetchInterval: 30000,
+      retry: false,
+    })),
+  });
+  const rankingByPhase = new Map(
+    rankingQueries
+      .map((q) => q.data)
+      .filter((d) => d !== undefined)
+      .map((d) => [d.phaseId, d] as const),
+  );
 
   const phaseIds = useMemo(() => {
     const groupPhaseIds =
@@ -255,9 +302,10 @@ function StandingsView({
     if (!matches) return [];
     const ids = new Set<string>();
     for (const m of matches) {
-      if (m.phaseId) ids.add(m.phaseId);
+      if (m.phaseId && !isPaschenLikeMatch(m)) ids.add(m.phaseId);
     }
-    return [...ids];
+    return [...ids].filter((id) => !paschen.paschenPhaseIds.has(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matches, phases]);
 
   const standingsQueries = useQueries({
@@ -294,6 +342,47 @@ function StandingsView({
     });
   });
 
+  const paschenSlides: Extract<StandingsSlide, { kind: "paschen-round" | "paschen-ranking" }>[] = [];
+  for (const phase of paschen.paschenPhases) {
+    const phaseTitle = toGermanPhaseName(phase.name);
+    const sortedBrackets = phase.brackets
+      .slice()
+      .sort((a, b) => a.bracketIndex - b.bracketIndex);
+
+    if (!phase.isMerged) {
+      for (const bracket of sortedBrackets) {
+        const cur = currentRound(bracket.matches);
+        if (!cur) continue;
+        paschenSlides.push({
+          kind: "paschen-round",
+          key: `paschen-${phase.id}-tree-${bracket.id}-r${cur.round}`,
+          title: `${phaseTitle} · Baum ${bracket.bracketIndex + 1} · Runde ${cur.round}`,
+          matches: cur.matches,
+        });
+      }
+    } else {
+      const cur = currentRound(phase.finalMatches);
+      if (cur) {
+        paschenSlides.push({
+          kind: "paschen-round",
+          key: `paschen-${phase.id}-final-r${cur.round}`,
+          title: `${phaseTitle} · ${paschenFinalRoundName(cur.round, paschenFinalMaxRound(phase.finalMatches))}`,
+          matches: cur.matches,
+        });
+      }
+    }
+
+    const ranking = rankingByPhase.get(phase.id);
+    if (ranking && ranking.entries.length > 0 && isPaschenPhaseFinished(phase)) {
+      paschenSlides.push({
+        kind: "paschen-ranking",
+        key: `paschen-${phase.id}-ranking`,
+        title: `${phaseTitle} · Endstand`,
+        phaseId: phase.id,
+      });
+    }
+  }
+
   const groupSlides = allGroups.map(({ group, phaseName }) => ({
     kind: "group" as const,
     key: `group-${group.groupId}`,
@@ -301,7 +390,7 @@ function StandingsView({
     group,
   } satisfies StandingsSlide));
 
-  const slides = [...groupSlides, ...koSlides];
+  const slides = [...groupSlides, ...koSlides, ...paschenSlides];
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(slideDurationSec);
 
@@ -338,7 +427,10 @@ function StandingsView({
 
   const currentSlide = slides[currentSlideIndex] ?? null;
 
-  const isLoading = !tournament || standingsQueries.some((q) => q.isLoading);
+  const isLoading =
+    !tournament ||
+    standingsQueries.some((q) => q.isLoading) ||
+    paschen.isLoading;
 
   if (isLoading && slides.length === 0) {
     return (
@@ -405,7 +497,7 @@ function StandingsView({
             </tbody>
           </table>
         </div>
-      ) : (
+      ) : currentSlide.kind === "ko-round" ? (
         <div className="space-y-3 rounded-lg border border-border p-4">
           <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm">
             <span className="font-medium">{currentSlide.phaseTitle}</span>
@@ -449,6 +541,40 @@ function StandingsView({
             })}
           </div>
         </div>
+      ) : currentSlide.kind === "paschen-round" ? (
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {currentSlide.matches.map((match) => (
+            <PaschenDisplayMatchCard
+              key={match.id}
+              match={match}
+              nameMap={paschen.nameMap}
+              label={paschen.matchLabels.get(match.id)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-border">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border text-xl">
+                <th className="p-3 text-left">Platz</th>
+                <th className="p-3 text-left">Name</th>
+                <th className="p-3 text-left">Erreicht</th>
+                <th className="p-3 text-center">Spiele</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(rankingByPhase.get(currentSlide.phaseId)?.entries ?? []).map((entry) => (
+                <tr key={entry.participantId} className="border-b border-border/50 text-xl">
+                  <td className="p-3 font-bold">{entry.rank}</td>
+                  <td className="p-3 font-medium">{entry.participantName}</td>
+                  <td className="p-3 text-muted-foreground">{entry.stageLabel}</td>
+                  <td className="p-3 text-center">{entry.matchesPlayed}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
@@ -469,10 +595,16 @@ function MatchesView({ tournamentId }: { tournamentId: string }) {
 
   const { data: phasesData } = useQuery({
     queryKey: ["display", tournamentId, "phases"],
-    queryFn: () => getPhases(tournamentId),
+    queryFn: () => getDisplayPhases(tournamentId),
     refetchInterval: 60000,
     retry: false,
   });
+
+  const paschen = usePaschenDisplayData(
+    tournamentId,
+    phasesData?.phases ?? [],
+    "display",
+  );
 
   if (isLoading || !matches) {
     return (
@@ -482,25 +614,71 @@ function MatchesView({ tournamentId }: { tournamentId: string }) {
     );
   }
 
+  // Paschen-Spiele ohne mindestens 2 besetzte Slots (Folgerunden) sind noch nicht spielbar.
+  const isRelevant = (m: MatchDto) =>
+    !isPaschenLikeMatch(m) ||
+    resolvePaschenPlayers(m, paschen.nameMap).length >= 2;
+
   const liveMatches = matches.filter(
     (m) => m.status === MatchStatus.InProgress,
   );
   const upcomingMatches = matches
-    .filter((m) => m.status === MatchStatus.Scheduled)
+    .filter((m) => m.status === MatchStatus.Scheduled && isRelevant(m))
     .slice(0, 8);
   const recentMatches = matches
     .filter((m) => m.status === MatchStatus.Completed)
+    .sort((a, b) => (a.completedAt ?? "").localeCompare(b.completedAt ?? ""))
     .slice(-4)
     .reverse();
 
   const phaseNameById = new Map(
     (phasesData?.phases ?? []).map((phase) => [phase.id, germanizePhaseName(phase.name)]),
   );
+  const phaseNameByBracketId = new Map<string, string>();
+  for (const p of paschen.paschenPhases) {
+    for (const b of p.brackets) {
+      phaseNameByBracketId.set(b.id, `${germanizePhaseName(p.name)} · Baum ${b.bracketIndex + 1}`);
+    }
+    for (const m of p.finalMatches) {
+      if (m.bracketId) phaseNameByBracketId.set(m.bracketId, `${germanizePhaseName(p.name)} · Finale`);
+    }
+  }
 
   const phaseLabelFor = (match: MatchDto) => {
-    if (!match.phaseId) return "Phase unbekannt";
+    if (match.bracketId && phaseNameByBracketId.has(match.bracketId)) {
+      return phaseNameByBracketId.get(match.bracketId)!;
+    }
+    if (!match.phaseId) return isPaschenLikeMatch(match) ? "Paschen" : "Phase unbekannt";
     return phaseNameById.get(match.phaseId) ?? "Phase";
   };
+
+  const paschenPhaseNameByMatchId = new Map<string, string>();
+  for (const p of paschen.paschenPhases) {
+    for (const m of [...p.brackets.flatMap((b) => b.matches), ...p.finalMatches]) {
+      paschenPhaseNameByMatchId.set(m.id, germanizePhaseName(p.name));
+    }
+  }
+  const paschenCardLabel = (match: MatchDto) => {
+    const label = paschen.matchLabels.get(match.id);
+    const phaseName = paschenPhaseNameByMatchId.get(match.id);
+    if (label && phaseName) return `${phaseName} · ${label}`;
+    return `${phaseLabelFor(match)} · Runde ${match.round} · Spiel ${match.matchNumber}`;
+  };
+
+  const renderCard = (
+    match: MatchDto,
+    Fallback: typeof LiveMatchCard,
+  ) =>
+    isPaschenLikeMatch(match) ? (
+      <PaschenDisplayMatchCard
+        key={match.id}
+        match={match}
+        nameMap={paschen.nameMap}
+        label={paschenCardLabel(match)}
+      />
+    ) : (
+      <Fallback key={match.id} match={match} phaseLabel={phaseLabelFor(match)} />
+    );
 
   return (
     <div className="space-y-8">
@@ -511,9 +689,7 @@ function MatchesView({ tournamentId }: { tournamentId: string }) {
             Laufende Spiele
           </h2>
           <div className="grid gap-4 lg:grid-cols-2">
-            {liveMatches.map((match) => (
-              <LiveMatchCard key={match.id} match={match} phaseLabel={phaseLabelFor(match)} />
-            ))}
+            {liveMatches.map((match) => renderCard(match, LiveMatchCard))}
           </div>
         </section>
       )}
@@ -522,9 +698,7 @@ function MatchesView({ tournamentId }: { tournamentId: string }) {
         <section>
           <h2 className="mb-4 text-2xl font-bold">Nächste Spiele</h2>
           <div className="grid gap-3 lg:grid-cols-2">
-            {upcomingMatches.map((match) => (
-              <UpcomingMatchCard key={match.id} match={match} phaseLabel={phaseLabelFor(match)} />
-            ))}
+            {upcomingMatches.map((match) => renderCard(match, UpcomingMatchCard))}
           </div>
         </section>
       )}
@@ -533,9 +707,7 @@ function MatchesView({ tournamentId }: { tournamentId: string }) {
         <section>
           <h2 className="mb-4 text-2xl font-bold">Letzte Ergebnisse</h2>
           <div className="grid gap-3 lg:grid-cols-2">
-            {recentMatches.map((match) => (
-              <CompletedMatchCard key={match.id} match={match} phaseLabel={phaseLabelFor(match)} />
-            ))}
+            {recentMatches.map((match) => renderCard(match, CompletedMatchCard))}
           </div>
         </section>
       )}

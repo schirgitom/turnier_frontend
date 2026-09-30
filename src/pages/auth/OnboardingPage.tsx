@@ -1,14 +1,15 @@
 import { useState } from "react";
-import { useNavigate, useLocation } from "react-router";
+import { useNavigate } from "react-router";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Building2, Clock, Loader2, LogOut } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
-import { useLogout } from "@/hooks/useAuth";
+import { useLogout, useSwitchOrganization } from "@/hooks/useAuth";
 import { createOrganization } from "@/api/organizations";
-import { getMyOrganizations, login } from "@/api/auth";
+import { getMyOrganizations } from "@/api/auth";
+import { roleLabel } from "@/types/auth";
 import { getApiErrorMessage } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,12 +43,6 @@ const createOrgSchema = z.object({
 
 type CreateOrgForm = z.infer<typeof createOrgSchema>;
 
-const roleLabels: Record<string, string> = {
-  Admin: "Admin",
-  Owner: "Inhaber",
-  Member: "Mitglied",
-};
-
 function LogoutButton() {
   const logoutMutation = useLogout();
 
@@ -66,13 +61,11 @@ function LogoutButton() {
 
 export function OnboardingPage() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const credentials = location.state as
-    | { email: string; password: string }
-    | null;
-  const setActiveOrg = useAuthStore((s) => s.setActiveOrg);
   const user = useAuthStore((s) => s.user);
+  const activeOrgId = useAuthStore((s) => s.activeOrg?.organizationId);
   const [mode, setMode] = useState<"choose" | "create" | "wait">("choose");
+  const switchMutation = useSwitchOrganization();
+  const pendingOrgId = switchMutation.isPending ? switchMutation.variables : undefined;
 
   const { data: orgs, isLoading: orgsLoading } = useQuery({
     queryKey: ["my-organizations"],
@@ -100,23 +93,9 @@ export function OnboardingPage() {
     onSuccess: async () => {
       const freshOrgs = await getMyOrganizations();
       const newOrg = freshOrgs[freshOrgs.length - 1];
-
-      if (credentials && newOrg) {
-        const loginResponse = await login({
-          email: credentials.email,
-          password: credentials.password,
-          organizationId: newOrg.organizationId,
-        });
-        useAuthStore.getState().setAuthWithOrg(loginResponse, newOrg);
-        navigate("/tournaments");
-      } else if (newOrg) {
-        setActiveOrg(newOrg);
-        navigate("/login", {
-          state: {
-            message:
-              "Organisation erstellt. Bitte erneut anmelden.",
-          },
-        });
+      if (newOrg) {
+        setMode("choose");
+        switchMutation.mutate(newOrg.organizationId);
       } else {
         navigate("/login");
       }
@@ -194,27 +173,38 @@ export function OnboardingPage() {
                   {orgs.map((org) => (
                     <Card
                       key={org.organizationId}
-                      className="cursor-pointer transition-shadow hover:shadow-md"
+                      className={
+                        "cursor-pointer transition-shadow hover:shadow-md" +
+                        (switchMutation.isPending ? " pointer-events-none opacity-60" : "")
+                      }
                       onClick={() => {
-                        navigate("/login", {
-                          state: {
-                            message:
-                              "Bitte erneut anmelden um die Organisation zu wechseln.",
-                          },
-                        });
+                        if (org.organizationId === activeOrgId) {
+                          navigate("/tournaments");
+                        } else {
+                          switchMutation.mutate(org.organizationId);
+                        }
                       }}
                     >
                       <CardHeader className="flex flex-row items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                          <Building2 className="h-5 w-5" />
+                          {pendingOrgId === org.organizationId ? (
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          ) : (
+                            <Building2 className="h-5 w-5" />
+                          )}
                         </div>
                         <div className="flex-1">
                           <CardTitle className="text-base">
                             {org.organizationName}
                           </CardTitle>
                           <Badge variant="secondary" className="mt-1">
-                            {roleLabels[org.role] ?? org.role}
+                            {roleLabel(org.role)}
                           </Badge>
+                          {org.organizationId === activeOrgId && (
+                            <Badge variant="outline" className="ml-1 mt-1">
+                              Aktiv
+                            </Badge>
+                          )}
                         </div>
                       </CardHeader>
                     </Card>

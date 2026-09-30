@@ -22,7 +22,9 @@ import { PhasesPage } from "@/pages/tournaments/PhasesPage";
 import { MatchesPage } from "@/pages/tournaments/MatchesPage";
 import { StandingsPage } from "@/pages/tournaments/StandingsPage";
 import { DisplayPage } from "@/pages/display/DisplayPage";
+import { InfoPage } from "@/pages/display/InfoPage";
 import { AccountPage } from "@/pages/account/AccountPage";
+import { MembersPage } from "@/pages/organization/MembersPage";
 
 function requireAuth() {
   const { refreshToken } = useAuthStore.getState();
@@ -58,6 +60,12 @@ export const router = createBrowserRouter([
           { path: "/login", element: <LoginPage /> },
           { path: "/register", element: <RegisterPage /> },
           { path: "/register-organization", element: <RegisterOrgPage /> },
+        ],
+      },
+      {
+        // Ohne redirectIfAuthed: angemeldete Benutzer nehmen Einladungen hier an.
+        element: <AuthLayout />,
+        children: [
           { path: "/invite/:token", element: <InviteAcceptPage /> },
         ],
       },
@@ -71,6 +79,7 @@ export const router = createBrowserRouter([
         loader: requireAuth,
         children: [
           { path: "/account", element: <AccountPage /> },
+          { path: "/members", element: <MembersPage /> },
           { path: "/tournaments", element: <TournamentsPage /> },
           { path: "/tournaments/new", element: <CreateTournamentPage /> },
           {
@@ -95,7 +104,7 @@ export const router = createBrowserRouter([
       },
       {
         path: "/info/:tournamentId",
-        element: <PublicTournamentPage />,
+        element: <InfoPage />,
       },
     ],
   },

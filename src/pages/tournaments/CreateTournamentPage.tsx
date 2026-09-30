@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
@@ -52,6 +52,7 @@ function toSlug(value: string): string {
 }
 
 const stepLabels = ["Basics", "Zeitraum", "Format", "Einstellungen"];
+const LAST_STEP = stepLabels.length - 1;
 
 const SPORTS = [
   { code: "table_tennis", label: "Tischtennis" },
@@ -162,10 +163,22 @@ const step1Fields = ["name", "slug", "sportCode"] as const;
 const step2Fields = ["startDate", "startTime", "minParticipants", "maxParticipants"] as const;
 const step3Fields = ["participantType", "formatType"] as const;
 
-function StepIndicator({ current }: { current: number }) {
+function StepIndicator({
+  current,
+  isPaschen,
+}: {
+  current: number;
+  isPaschen: boolean;
+}) {
+  const labels = isPaschen
+    ? stepLabels.map((label, index) =>
+        index === LAST_STEP ? "Sichtbarkeit" : label,
+      )
+    : stepLabels;
+
   return (
     <div className="mb-8 flex items-center justify-center gap-2">
-      {stepLabels.map((label, i) => {
+      {labels.map((label, i) => {
         const done = i < current;
         const active = i === current;
         return (
@@ -204,6 +217,8 @@ export function CreateTournamentPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
+  const [isAdvancing, setIsAdvancing] = useState(false);
+  const advancingRef = useRef(false);
 
   const mutation = useMutation({
     mutationFn: createTournament,
@@ -252,6 +267,7 @@ export function CreateTournamentPage() {
   const startDate = useWatch({ control, name: "startDate" }) ?? "";
   const multiDay = useWatch({ control, name: "multiDay" }) ?? false;
   const sportCode = useWatch({ control, name: "sportCode" }) ?? "";
+  const isPaschen = sportCode === "paschen";
   const participantType = useWatch({ control, name: "participantType" });
   const formatType = useWatch({ control, name: "formatType" }) ?? "";
   const advancingPerGroup = useWatch({ control, name: "advancingPerGroup" });
@@ -260,29 +276,39 @@ export function CreateTournamentPage() {
   const [advancingMode, setAdvancingMode] = useState<"1" | "2" | "3" | "custom">("2");
 
   const goNext = async () => {
-    if (step === 1) {
-      const baseValid = await trigger([...step2Fields]);
-      if (!baseValid) return;
-      if (multiDay) {
-        const endValid = await trigger(["endDate"]);
-        if (!endValid) return;
+    if (advancingRef.current || step >= LAST_STEP) return;
+
+    advancingRef.current = true;
+    setIsAdvancing(true);
+    try {
+      if (step === 1) {
+        const baseValid = await trigger([...step2Fields]);
+        if (!baseValid) return;
+        if (multiDay) {
+          const endValid = await trigger(["endDate"]);
+          if (!endValid) return;
+        } else {
+          setValue("endDate", startDate);
+        }
       } else {
-        setValue("endDate", startDate);
+        const fields = step === 0 ? step1Fields : step3Fields;
+        const valid = await trigger([...fields]);
+        if (!valid) return;
       }
-      setStep((s) => s + 1);
-      return;
+
+      setStep((current) => Math.min(current + 1, LAST_STEP));
+    } finally {
+      advancingRef.current = false;
+      setIsAdvancing(false);
     }
-    const fields = step === 0 ? step1Fields : step3Fields;
-    const valid = await trigger([...fields]);
-    if (valid) setStep((s) => s + 1);
   };
 
-  const goBack = () => setStep((s) => s - 1);
+  const goBack = () => setStep((s) => Math.max(0, s - 1));
 
   const onSubmit = (data: CreateForm) => {
     // Schutz gegen vorzeitiges Absenden (z.B. via Enter-Taste in einem Eingabefeld):
     // Nur auf dem letzten Schritt wird das Turnier tatsächlich erstellt.
-    if (step < 3) {
+    if (step !== LAST_STEP) {
       void goNext();
       return;
     }
@@ -324,7 +350,7 @@ export function CreateTournamentPage() {
         Zurück zur Übersicht
       </Button>
 
-      <StepIndicator current={step} />
+      <StepIndicator current={step} isPaschen={isPaschen} />
 
       <Card>
         <form onSubmit={handleSubmit(onSubmit)}>
@@ -724,12 +750,14 @@ export function CreateTournamentPage() {
             </>
           )}
 
-          {step === 3 && (
+          {step === LAST_STEP && (
             <>
               <CardHeader>
-                <CardTitle>Einstellungen</CardTitle>
+                <CardTitle>{isPaschen ? "Sichtbarkeit" : "Einstellungen"}</CardTitle>
                 <CardDescription>
-                  Konfiguriere Sichtbarkeit und weitere Optionen.
+                  {isPaschen
+                    ? "Die Sichtbarkeit legst du hier fest; Paschen-Auslosung und Regeln richtest du später unter Phasen ein."
+                    : "Konfiguriere Sichtbarkeit und weitere Optionen."}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -765,69 +793,91 @@ export function CreateTournamentPage() {
                   </div>
                 </div>
 
-                <label className="flex items-center gap-3 rounded-lg border p-3">
-                  <input
-                    type="checkbox"
-                    checked={seeding}
-                    onChange={(e) => setValue("seeding", e.target.checked)}
-                    className="h-4 w-4 rounded border"
-                  />
-                  <div>
-                    <span className="text-sm font-medium">Setzliste verwenden</span>
-                    <p className="text-xs text-muted-foreground">
-                      Teilnehmer werden nach Stärke gesetzt
+                {isPaschen ? (
+                  <div className="rounded-md border border-primary/20 bg-muted/40 p-3 text-sm">
+                    <p className="font-medium">Paschen-Einstellungen</p>
+                    <p className="mt-1 text-muted-foreground">
+                      Die Setzlisten-Option und Satz-/Punktvorgaben dieses
+                      Schritts greifen bei Paschen nicht. Die Paschen-Auslosung
+                      und Regeln richtest du später im Bereich „Phasen“ ein.
                     </p>
                   </div>
-                </label>
+                ) : (
+                  <>
+                    <label className="flex items-center gap-3 rounded-lg border p-3">
+                      <input
+                        type="checkbox"
+                        checked={seeding}
+                        onChange={(e) => setValue("seeding", e.target.checked)}
+                        className="h-4 w-4 rounded border"
+                      />
+                      <div>
+                        <span className="text-sm font-medium">Setzliste verwenden</span>
+                        <p className="text-xs text-muted-foreground">
+                          Teilnehmer werden nach Stärke gesetzt
+                        </p>
+                      </div>
+                    </label>
 
-                <div className="space-y-2">
-                  <Label htmlFor="matchSetsToWinOverride">Sätze zum Sieg (optional)</Label>
-                  <Input
-                    id="matchSetsToWinOverride"
-                    type="number"
-                    min={1}
-                    placeholder="Standard verwenden"
-                    {...register("matchSetsToWinOverride")}
-                  />
-                  {errors.matchSetsToWinOverride && (
-                    <p className="text-sm text-destructive">
-                      {errors.matchSetsToWinOverride.message}
-                    </p>
-                  )}
-                </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="matchSetsToWinOverride">Sätze zum Sieg (optional)</Label>
+                      <Input
+                        id="matchSetsToWinOverride"
+                        type="number"
+                        min={1}
+                        placeholder="Standard verwenden"
+                        {...register("matchSetsToWinOverride")}
+                      />
+                      {errors.matchSetsToWinOverride && (
+                        <p className="text-sm text-destructive">
+                          {errors.matchSetsToWinOverride.message}
+                        </p>
+                      )}
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="matchPointsToWinOverride">Punkte pro Satzsieg (optional)</Label>
-                  <Input
-                    id="matchPointsToWinOverride"
-                    type="number"
-                    min={1}
-                    placeholder="Standard verwenden"
-                    {...register("matchPointsToWinOverride")}
-                  />
-                  {errors.matchPointsToWinOverride && (
-                    <p className="text-sm text-destructive">
-                      {errors.matchPointsToWinOverride.message}
-                    </p>
-                  )}
-                </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="matchPointsToWinOverride">Punkte pro Satzsieg (optional)</Label>
+                      <Input
+                        id="matchPointsToWinOverride"
+                        type="number"
+                        min={1}
+                        placeholder="Standard verwenden"
+                        {...register("matchPointsToWinOverride")}
+                      />
+                      {errors.matchPointsToWinOverride && (
+                        <p className="text-sm text-destructive">
+                          {errors.matchPointsToWinOverride.message}
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
               </CardContent>
             </>
           )}
 
           <CardFooter className="flex justify-between gap-3">
             {step > 0 ? (
-              <Button type="button" variant="outline" onClick={goBack}>
+              <Button type="button" variant="outline" onClick={goBack} disabled={isAdvancing}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Zurück
               </Button>
             ) : (
               <div />
             )}
-            {step < 3 ? (
-              <Button type="button" onClick={goNext}>
-                Weiter
-                <ArrowRight className="ml-2 h-4 w-4" />
+            {step < LAST_STEP ? (
+              <Button type="button" onClick={goNext} disabled={isAdvancing}>
+                {isAdvancing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Prüfe …
+                  </>
+                ) : (
+                  <>
+                    Weiter
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </>
+                )}
               </Button>
             ) : (
               <Button type="submit" disabled={mutation.isPending}>

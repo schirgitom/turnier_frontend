@@ -7,6 +7,15 @@ import { toast } from "sonner";
 import { getMatches, startMatch, submitResult } from "@/api/matches";
 import { getPhases, getPhaseMatches } from "@/api/phases";
 import { getPhaseVenues } from "@/api/phaseVenues";
+import { recordPaschenResult } from "@/api/paschen";
+import { PaschenResultDialog } from "@/components/tournament/PaschenResultDialog";
+import {
+  PASCHEN_RULE_DEFAULTS,
+  assignedPlayers,
+  isPaschenMatch,
+  type PaschenMatchDto,
+  type PaschenPlayerScoreRequest,
+} from "@/types/paschen";
 import { getApiErrorMessage } from "@/api/client";
 import type { TournamentDto } from "@/types/tournament";
 import { TournamentStatus } from "@/types/tournament";
@@ -46,7 +55,7 @@ import {
 import { MatchStatus } from "@/types/match";
 import type { MatchDto } from "@/types/match";
 import { cn } from "@/lib/utils";
-import { isGroupPhase } from "@/types/phase";
+import { isGroupPhase, isPaschenPhase } from "@/types/phase";
 import { isEliminationBracket } from "@/types/bracket";
 import type { GroupMatchesResponse } from "@/types/bracket";
 import type { PhaseMatchesResponse } from "@/types/bracket";
@@ -294,15 +303,74 @@ export function MatchesPage() {
     queryFn: () => getPhases(tournamentId!),
     enabled: !!tournamentId,
   });
-  const phases = phasesData?.phases ?? [];
+  const phases = useMemo(() => phasesData?.phases ?? [], [phasesData]);
 
   const phaseMatchQueries = useQueries({
     queries: phases.map((phase) => ({
       queryKey: ["phaseMatches", tournamentId, phase.id],
       queryFn: () => getPhaseMatches(tournamentId!, phase.id),
-      enabled: !!tournamentId,
+      // Paschen-Phasen haben keinen Gruppen-/K.O.-Endpunkt (404) – ihre Spiele kommen aus /matches.
+      enabled: !!tournamentId && !isPaschenPhase(phase),
     })),
   });
+
+  const paschenPhase = phases.find(isPaschenPhase);
+  const paschenAdvancers =
+    paschenPhase?.advancersPerMatch ?? PASCHEN_RULE_DEFAULTS.advancersPerMatch;
+  const paschenEliminationScore =
+    paschenPhase?.eliminationScore ?? PASCHEN_RULE_DEFAULTS.eliminationScore;
+
+  const [paschenMatch, setPaschenMatch] = useState<PaschenMatchDto | null>(null);
+  const [paschenError, setPaschenError] = useState<string | null>(null);
+
+  const invalidateAfterPaschen = () => {
+    queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
+    queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+    queryClient.invalidateQueries({ queryKey: ["paschenPhase", tournamentId] });
+    queryClient.invalidateQueries({ queryKey: ["paschenRanking", tournamentId] });
+  };
+
+  const paschenResultMutation = useMutation({
+    mutationFn: ({ matchId, scores }: { matchId: string; scores: PaschenPlayerScoreRequest[] }) =>
+      recordPaschenResult(tournamentId!, matchId, { playerScores: scores }),
+    onSuccess: () => {
+      invalidateAfterPaschen();
+      setPaschenMatch(null);
+      setPaschenError(null);
+      toast.success("Ergebnis gespeichert.");
+    },
+    onError: (e) => setPaschenError(getApiErrorMessage(e)),
+  });
+
+  const paschenStartMutation = useMutation({
+    mutationFn: (match: PaschenMatchDto) => startMatch(tournamentId!, match.id),
+    onSuccess: (_data, match) => {
+      setPaschenMatch((current) =>
+        current?.id === match.id ? { ...current, status: "InProgress" } : current,
+      );
+      invalidateAfterPaschen();
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  const toPaschenMatch = (match: MatchDto): PaschenMatchDto => ({
+    id: match.id,
+    round: match.round,
+    matchNumber: Number(match.matchNumber),
+    status: match.status as PaschenMatchDto["status"],
+    matchCode: match.matchCode ?? null,
+    bracketId: match.bracketId ?? null,
+    players: match.players ?? [],
+    score: null,
+    homeParticipantId: match.homeParticipantId,
+    awayParticipantId: match.awayParticipantId,
+    scheduledAt: match.scheduledAt,
+    courtId: match.courtId,
+    courtName: match.courtName,
+  });
+
+  const paschenPlayerNames = (match: MatchDto): string[] =>
+    assignedPlayers(toPaschenMatch(match)).map((p) => p.participantName ?? "Unbekannt");
 
   // Build match metadata map from phase match queries: matchId → { phaseId, roundLabel, groupName? }
   const matchMeta = new Map<string, MatchMeta>();
@@ -537,15 +605,24 @@ export function MatchesPage() {
     const normalizedMatchNumberFilter = matchNumberFilter.trim().toLowerCase();
 
     if (normalizedMatchNumberFilter) {
-      result = result.filter((m) => m.matchNumber?.toLowerCase().includes(normalizedMatchNumberFilter));
+      result = result.filter((m) =>
+        String(m.matchNumber ?? "").toLowerCase().includes(normalizedMatchNumberFilter),
+      );
     }
 
     if (hideByes) {
-      result = result.filter((m) => m.homeParticipantName && m.awayParticipantName);
+      result = result.filter((m) =>
+        isPaschenMatch(m)
+          ? paschenPlayerNames(m).length >= 2
+          : m.homeParticipantName && m.awayParticipantName,
+      );
     }
     if (selectedParticipant) {
       result = result.filter(
-        (m) => m.homeParticipantName === selectedParticipant || m.awayParticipantName === selectedParticipant,
+        (m) =>
+          m.homeParticipantName === selectedParticipant ||
+          m.awayParticipantName === selectedParticipant ||
+          (isPaschenMatch(m) && paschenPlayerNames(m).includes(selectedParticipant)),
       );
     }
     if (selectedVenue) {
@@ -559,7 +636,8 @@ export function MatchesPage() {
       result = result.filter(
         (m) =>
           m.homeParticipantName?.toLowerCase().includes(q) ||
-          m.awayParticipantName?.toLowerCase().includes(q),
+          m.awayParticipantName?.toLowerCase().includes(q) ||
+          (isPaschenMatch(m) && paschenPlayerNames(m).some((n) => n.toLowerCase().includes(q))),
       );
     }
     return [...result].sort((a, b) => {
@@ -583,6 +661,12 @@ export function MatchesPage() {
   );
 
   const handleOpenResult = async (match: MatchDto) => {
+    if (isPaschenMatch(match)) {
+      setPaschenError(null);
+      setPaschenMatch(toPaschenMatch(match));
+      return;
+    }
+
     const existingSetsFromMatch =
       match.score?.sets?.map((set) => ({
         homeScore: set.homeScore,
@@ -782,8 +866,9 @@ export function MatchesPage() {
       const freshMatches = await getMatches(tournamentId!);
       const targets = freshMatches.filter(
         (m) =>
-          getEffectiveStatus(m) === MatchStatus.Scheduled ||
-          getEffectiveStatus(m) === MatchStatus.InProgress,
+          !isPaschenMatch(m) &&
+          (getEffectiveStatus(m) === MatchStatus.Scheduled ||
+            getEffectiveStatus(m) === MatchStatus.InProgress),
       );
       for (let i = 0; i < targets.length; i++) {
         const match = targets[i]!;
@@ -1092,7 +1177,7 @@ export function MatchesPage() {
                     {/* Home name */}
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        {match.homeParticipantName != null ? (
+                        {isPaschenMatch(match) ? (<span className="font-medium">{paschenPlayerNames(match).join(" · ") || "TBD"}</span>) : match.homeParticipantName != null ? (
                           <span className={cn(
                             homeWon ? "font-semibold" : isCompleted ? "text-muted-foreground" : "font-medium",
                           )}>
@@ -1108,7 +1193,7 @@ export function MatchesPage() {
 
                     {/* Score */}
                     <TableCell className="text-center">
-                      {match.score ? (
+                      {isPaschenMatch(match) && match.players?.some((p) => p.points !== null) ? (<span className="text-sm tabular-nums">{match.players.filter((p) => p.participantId).map((p) => p.points ?? "–").join(" / ")}</span>) : match.score ? (
                         <div className="inline-flex items-stretch overflow-hidden rounded border text-sm">
                           <span className={cn(
                             "px-2.5 py-1 font-bold",
@@ -1138,7 +1223,7 @@ export function MatchesPage() {
                     {/* Away name */}
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        {match.awayParticipantName != null ? (
+                        {isPaschenMatch(match) ? (<span className="text-muted-foreground">–</span>) : match.awayParticipantName != null ? (
                           <span className={cn(
                             awayWon ? "font-semibold" : isCompleted ? "text-muted-foreground" : "font-medium",
                           )}>
@@ -1496,6 +1581,24 @@ export function MatchesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PaschenResultDialog
+        match={paschenMatch}
+        advancersPerMatch={paschenAdvancers}
+        eliminationScore={paschenEliminationScore}
+        submitting={paschenResultMutation.isPending}
+        serverError={paschenError}
+        onClose={() => {
+          setPaschenMatch(null);
+          setPaschenError(null);
+        }}
+        onSubmit={(scores) => {
+          if (!paschenMatch) return;
+          paschenResultMutation.mutate({ matchId: paschenMatch.id, scores });
+        }}
+        onStart={(m) => paschenStartMutation.mutate(m)}
+        starting={paschenStartMutation.isPending}
+      />
 
       {/* Demo: random results dialog */}
       <Dialog

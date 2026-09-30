@@ -13,11 +13,11 @@ import {
   getPublicMatches,
   getPublicStandings,
 } from "@/api/display";
-import { getPhases, getPhaseMatches } from "@/api/phases";
+import { getDisplayPhases, getDisplayPhaseMatches } from "@/api/phases";
 import { BracketView } from "@/components/tournament/BracketView";
 import { MatchStatus } from "@/types/match";
 import type { MatchDto } from "@/types/match";
-import { isGroupPhase } from "@/types/phase";
+import { isGroupPhase, isPaschenPhase } from "@/types/phase";
 import { isEliminationBracket } from "@/types/bracket";
 import type { GroupMatchesResponse } from "@/types/bracket";
 import type { PhaseResponse } from "@/types/phase";
@@ -34,6 +34,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  usePaschenDisplayData,
+  mergePaschenMatches,
+  isPaschenLikeMatch,
+  resolvePaschenPlayers,
+  PaschenDisplayMatchCard,
+  PaschenRankingsSection,
+} from "@/pages/display/paschenDisplay";
+import { PaschenTabView } from "@/pages/display/InfoPage";
 
 function formatSetScores(match: MatchDto): string | null {
   const sets = match.score?.sets;
@@ -115,21 +124,39 @@ export function PublicTournamentPage() {
     enabled: !!tournamentId,
   });
 
-  const { data: matches } = useQuery({
+  const { data: rawMatches } = useQuery({
     queryKey: ["public-matches", tournamentId],
     queryFn: () => getPublicMatches(tournamentId!),
     enabled: !!tournamentId,
     refetchInterval: 30000,
   });
 
+  // Anonym laden – der authentifizierte Client scheitert auf der Public-Seite ohne Login.
   const { data: phasesData } = useQuery({
     queryKey: ["public-phases", tournamentId],
-    queryFn: () => getPhases(tournamentId!),
+    queryFn: () => getDisplayPhases(tournamentId!),
     enabled: !!tournamentId,
     retry: false,
+    refetchInterval: 60000,
   });
 
-  const phases = phasesData?.phases ?? [];
+  const phases = useMemo(() => phasesData?.phases ?? [], [phasesData]);
+
+  const paschen = usePaschenDisplayData(tournamentId, phases, "public");
+
+  const matches = useMemo(
+    () => mergePaschenMatches(rawMatches, paschen.paschenPhases),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawMatches, paschen.nameMap, paschen.matchLabels],
+  );
+
+  const paschenRankingPhases = useMemo(
+    () =>
+      phases
+        .filter((p) => isPaschenPhase(p))
+        .map((p) => ({ id: p.id, name: displayPhaseName(p.name) })),
+    [phases],
+  );
 
   const groupPhases = useMemo(
     () => phases.filter((p) => isGroupPhase(p)),
@@ -139,7 +166,7 @@ export function PublicTournamentPage() {
   const groupPhaseMatchesQueries = useQueries({
     queries: groupPhases.map((phase) => ({
       queryKey: ["public-group-matches", tournamentId, phase.id],
-      queryFn: () => getPhaseMatches(tournamentId!, phase.id),
+      queryFn: () => getDisplayPhaseMatches(tournamentId!, phase.id),
       enabled: !!tournamentId,
       retry: false,
       refetchInterval: 30000,
@@ -225,24 +252,47 @@ export function PublicTournamentPage() {
         <TabsList>
           <TabsTrigger value="matches">Spielplan</TabsTrigger>
           <TabsTrigger value="standings">Tabellen</TabsTrigger>
-          {phases.some((p) => !isGroupPhase(p)) && (
+          {phases.some((p) => !isGroupPhase(p) && !isPaschenPhase(p)) && (
             <TabsTrigger value="bracket">K.O.-Phase</TabsTrigger>
+          )}
+          {paschenRankingPhases.length > 0 && (
+            <TabsTrigger value="paschen">Paschen</TabsTrigger>
           )}
         </TabsList>
 
         <TabsContent value="matches" className="mt-4">
           <MatchesTab
-            matches={matches ?? []}
+            matches={matches}
             groupLabelByMatchId={groupLabelByMatchId}
+            paschenNameMap={paschen.nameMap}
+            paschenLabels={paschen.matchLabels}
           />
         </TabsContent>
 
         <TabsContent value="standings" className="mt-4">
-          <StandingsTab tournamentId={tournamentId!} phases={phases} />
+          <div className="space-y-8">
+            <PaschenRankingsSection
+              tournamentId={tournamentId!}
+              phases={paschenRankingPhases}
+              keyPrefix="public"
+            />
+            {(phases.some((p) => isGroupPhase(p)) || paschenRankingPhases.length === 0) && (
+              <StandingsTab tournamentId={tournamentId!} phases={phases} />
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="bracket" className="mt-4">
           <BracketTab tournamentId={tournamentId!} phases={phases} />
+        </TabsContent>
+
+        <TabsContent value="paschen" className="mt-4">
+          <PaschenTabView
+            phases={paschen.paschenPhases}
+            nameMap={paschen.nameMap}
+            matchLabels={paschen.matchLabels}
+            isLoading={paschen.isLoading}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -252,15 +302,31 @@ export function PublicTournamentPage() {
 // ─── Matches tab ─────────────────────────────────────────────────────────────
 
 function MatchesTab({
-  matches,
+  matches: allMatches,
   groupLabelByMatchId,
+  paschenNameMap,
+  paschenLabels,
 }: {
   matches: MatchDto[];
   groupLabelByMatchId: Map<string, string>;
+  paschenNameMap: Map<string, string>;
+  paschenLabels: Map<string, string>;
 }) {
   const [filter, setFilter] = useState<"all" | "live" | "scheduled" | "completed">("all");
   const [participantFilter, setParticipantFilter] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
+
+  const matches = useMemo(
+    () => allMatches.filter((m) => !isPaschenLikeMatch(m)),
+    [allMatches],
+  );
+  const paschenMatches = useMemo(
+    () =>
+      allMatches.filter(
+        (m) => isPaschenLikeMatch(m) && String(m.status) !== "Cancelled",
+      ),
+    [allMatches],
+  );
 
   const participants = useMemo(() => {
     const names = new Set<string>();
@@ -269,8 +335,9 @@ function MatchesTab({
       if (match.homeParticipantName) names.add(match.homeParticipantName);
       if (match.awayParticipantName) names.add(match.awayParticipantName);
     }
+    for (const n of paschenNameMap.values()) names.add(n);
     return [...names].sort((a, b) => a.localeCompare(b, "de"));
-  }, [matches]);
+  }, [matches, paschenNameMap]);
 
   const groupOptions = useMemo(() => {
     const groups = new Set<string>();
@@ -322,9 +389,36 @@ function MatchesTab({
     });
   }, [matches, filter, participantFilter, groupFilter, groupLabelByMatchId]);
 
-  const liveCount = matches.filter((m) => !isByeMatch(m) && m.status === MatchStatus.InProgress).length;
+  const liveCount =
+    matches.filter((m) => !isByeMatch(m) && m.status === MatchStatus.InProgress).length +
+    paschenMatches.filter((m) => m.status === MatchStatus.InProgress).length;
 
-  if (matches.filter((m) => !isByeMatch(m)).length === 0) {
+  const filteredPaschen = useMemo(() => {
+    const query = participantFilter.trim().toLowerCase();
+    return paschenMatches
+      .filter((m) => {
+        switch (filter) {
+          case "live":
+            return m.status === MatchStatus.InProgress;
+          case "scheduled":
+            return m.status === MatchStatus.Scheduled;
+          case "completed":
+            return m.status === MatchStatus.Completed;
+          default:
+            return true;
+        }
+      })
+      .filter(
+        (m) =>
+          !query ||
+          resolvePaschenPlayers(m, paschenNameMap).some((p) =>
+            p.name.toLowerCase().includes(query),
+          ),
+      )
+      .sort((a, b) => a.round - b.round || compareMatches(a, b));
+  }, [paschenMatches, filter, participantFilter, paschenNameMap]);
+
+  if (matches.filter((m) => !isByeMatch(m)).length === 0 && paschenMatches.length === 0) {
     return (
       <p className="py-8 text-center text-muted-foreground">
         Noch keine Spiele vorhanden.
@@ -411,11 +505,33 @@ function MatchesTab({
         )}
       </div>
 
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && filteredPaschen.length === 0 ? (
         <p className="py-8 text-center text-muted-foreground">
           Keine Spiele in dieser Kategorie.
         </p>
       ) : (
+        <div className="space-y-6">
+          {filteredPaschen.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredPaschen.map((m) => (
+                <PaschenDisplayMatchCard
+                  key={m.id}
+                  match={m}
+                  nameMap={paschenNameMap}
+                  size="sm"
+                  label={paschenLabels.get(m.id)}
+                  highlightName={
+                    participantFilter.trim()
+                      ? resolvePaschenPlayers(m, paschenNameMap).find(
+                          (p) => p.name.toLowerCase() === participantFilter.trim().toLowerCase(),
+                        )?.name
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+          )}
+          {filtered.length > 0 && (
         <Table>
           <TableHeader>
             <TableRow>
@@ -494,6 +610,8 @@ function MatchesTab({
             })}
           </TableBody>
         </Table>
+          )}
+        </div>
       )}
     </div>
   );
@@ -607,14 +725,14 @@ function BracketTab({
   phases: PhaseResponse[];
 }) {
   const elimPhases = useMemo(
-    () => phases.filter((p) => !isGroupPhase(p)),
+    () => phases.filter((p) => !isGroupPhase(p) && !isPaschenPhase(p)),
     [phases],
   );
 
   const bracketQueries = useQueries({
     queries: elimPhases.map((phase) => ({
       queryKey: ["public-bracket", tournamentId, phase.id],
-      queryFn: () => getPhaseMatches(tournamentId, phase.id),
+      queryFn: () => getDisplayPhaseMatches(tournamentId, phase.id),
       retry: false,
     })),
   });

@@ -1,12 +1,33 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AuthResponse, UserDto, OrgMembershipDto } from "@/types/auth";
+import { orgFromAuthResponse } from "@/types/auth";
+
+function userFromResponse(response: AuthResponse, fallback: UserDto | null): UserDto | null {
+  if (response.user) {
+    return {
+      id: response.user.id,
+      email: response.user.email,
+      displayName: response.user.displayName,
+    };
+  }
+  if (response.userId) {
+    return {
+      id: response.userId,
+      email: response.email ?? "",
+      displayName: response.displayName ?? "",
+    };
+  }
+  return fallback;
+}
 
 interface AuthState {
   user: UserDto | null;
   accessToken: string | null;
   refreshToken: string | null;
   activeOrg: OrgMembershipDto | null;
+  /** Zuletzt verwendete Organisation – bleibt nach Logout erhalten (Vorauswahl beim Login). */
+  lastOrgId: string | null;
 
   setAuth: (response: AuthResponse) => void;
   setAuthWithOrg: (response: AuthResponse, org: OrgMembershipDto | null) => void;
@@ -23,32 +44,26 @@ export const useAuthStore = create<AuthState>()(
       accessToken: null,
       refreshToken: null,
       activeOrg: null,
+      lastOrgId: null,
 
       setAuth: (response) => {
-        const user: UserDto = {
-          id: response.userId,
-          email: response.email,
-          displayName: response.displayName,
-        };
+        // Org + Rolle aus dem Token übernehmen (Quelle der Wahrheit), sonst beibehalten.
+        const org = orgFromAuthResponse(response) ?? get().activeOrg;
         set({
-          user,
+          user: userFromResponse(response, get().user),
           accessToken: response.accessToken,
           refreshToken: response.refreshToken,
-          activeOrg: get().activeOrg,
+          activeOrg: org,
         });
       },
 
       setAuthWithOrg: (response, org) => {
-        const user: UserDto = {
-          id: response.userId,
-          email: response.email,
-          displayName: response.displayName,
-        };
         set({
-          user,
+          user: userFromResponse(response, get().user),
           accessToken: response.accessToken,
           refreshToken: response.refreshToken,
           activeOrg: org,
+          lastOrgId: org?.organizationId ?? get().lastOrgId,
         });
       },
 
@@ -57,7 +72,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setActiveOrg: (org) => {
-        set({ activeOrg: org });
+        set({ activeOrg: org, lastOrgId: org?.organizationId ?? get().lastOrgId });
       },
 
       logout: () => {
@@ -79,6 +94,7 @@ export const useAuthStore = create<AuthState>()(
         refreshToken: state.refreshToken,
         user: state.user,
         activeOrg: state.activeOrg,
+        lastOrgId: state.lastOrgId,
       }),
     },
   ),

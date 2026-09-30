@@ -1,50 +1,60 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
-import axios from "axios";
+import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import * as authApi from "@/api/auth";
-import type {
-  LoginRequest,
-  RegisterUserRequest,
-  RegisterOrganizationRequest,
-  OrgMembershipDto,
+import { getApiErrorMessage } from "@/api/client";
+import { broadcastAuthEvent } from "@/lib/authSync";
+import {
+  isOrganizationChoice,
+  orgFromAuthResponse,
+  type LoginRequest,
+  type RegisterUserRequest,
+  type RegisterOrganizationRequest,
+  type OrgMembershipDto,
 } from "@/types/auth";
 
-export function useLogin() {
+export type LoginResult =
+  | { kind: "done" }
+  | { kind: "choice"; organizations: OrgMembershipDto[] };
+
+/** Nur interne Pfade zulassen (kein Open Redirect). */
+export function safeRedirect(target: string | null | undefined): string | null {
+  if (!target || !target.startsWith("/") || target.startsWith("//")) {
+    return null;
+  }
+  return target;
+}
+
+/**
+ * Login-Flow:
+ * - 1 Organisation → Backend liefert direkt Token mit Org-Claim.
+ * - mehrere Organisationen → Backend liefert `requiresOrganizationChoice`;
+ *   die Login-Seite zeigt dann eine Auswahl und ruft erneut mit `organizationId` auf.
+ * - keine Organisation → Onboarding.
+ * - `redirectTo` (z. B. Einladungslink) hat Vorrang vor dem Standardziel.
+ */
+export function useLogin(redirectTo?: string | null) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: LoginRequest) => authApi.login(data),
-    onSuccess: async (response, variables) => {
-      let orgs: OrgMembershipDto[] = [];
-      try {
-        orgs = await authApi.getMyOrganizations(response.accessToken);
-      } catch {
-        // ignore, orgs stays empty
+    mutationFn: async (data: LoginRequest): Promise<LoginResult> => {
+      const result = await authApi.login(data);
+
+      if (isOrganizationChoice(result)) {
+        return { kind: "choice", organizations: result.organizations };
       }
 
-      if (orgs.length > 0) {
-        let orgResponse = response;
-        try {
-          orgResponse = await authApi.login({
-            email: variables.email,
-            password: variables.password,
-            organizationId: orgs[0]!.organizationId,
-          });
-        } catch {
-          // fall back to initial token without org claim
-        }
-        useAuthStore.getState().setAuthWithOrg(orgResponse, orgs[0]!);
-        navigate("/tournaments");
-      } else {
-        useAuthStore.getState().setAuthWithOrg(response, null);
-        navigate("/onboarding");
-      }
-    },
-    onError: (error) => {
-      if (axios.isAxiosError(error) && error.response?.status === 403) {
-        navigate("/onboarding");
-      }
+      const org = orgFromAuthResponse(result);
+      // Daten der zuvor aktiven Organisation verwerfen.
+      queryClient.clear();
+      useAuthStore.getState().setAuthWithOrg(result, org);
+      navigate(
+        safeRedirect(redirectTo) ?? (org ? "/tournaments" : "/onboarding"),
+        { replace: true },
+      );
+      return { kind: "done" };
     },
   });
 }
@@ -54,7 +64,7 @@ export function useRegister() {
 
   return useMutation({
     mutationFn: (data: RegisterUserRequest) => authApi.register(data),
-    onSuccess: async (response, variables) => {
+    onSuccess: async (response) => {
       let orgs: OrgMembershipDto[] = [];
       try {
         orgs = await authApi.getMyOrganizations(response.accessToken);
@@ -70,9 +80,7 @@ export function useRegister() {
       if (orgs.length > 0) {
         navigate("/tournaments");
       } else {
-        navigate("/onboarding", {
-          state: { email: variables.email, password: variables.password },
-        });
+        navigate("/onboarding");
       }
     },
   });
@@ -104,6 +112,7 @@ export function useRegisterOrganization() {
 
 export function useLogout() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { refreshToken, logout } = useAuthStore();
 
   return useMutation({
@@ -114,7 +123,68 @@ export function useLogout() {
     },
     onSettled: () => {
       logout();
+      queryClient.clear();
+      broadcastAuthEvent({ type: "logout" });
       navigate("/login");
+    },
+  });
+}
+
+/**
+ * Wechselt die aktive Organisation über `POST /auth/switch-organization`.
+ * - ersetzt Access- und Refresh-Token (alte Refresh-Tokens sind serverseitig widerrufen)
+ * - übernimmt Organisation + Rolle aus `user`
+ * - leert den Query-Cache und navigiert zur Turnierliste
+ * - SignalR baut sich über den geänderten Access-Token neu auf
+ * - andere Tabs werden benachrichtigt und laden neu
+ */
+export function useSwitchOrganization() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (organizationId: string) =>
+      authApi.switchOrganization(organizationId),
+    onSuccess: (response, organizationId) => {
+      const org = orgFromAuthResponse(response);
+      queryClient.clear();
+      useAuthStore.getState().setAuthWithOrg(response, org);
+      broadcastAuthEvent({
+        type: "org-switched",
+        organizationId: org?.organizationId ?? organizationId,
+      });
+      navigate("/tournaments", { replace: true });
+      if (org) toast.success(`Gewechselt zu ${org.organizationName}`);
+    },
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error));
+    },
+  });
+}
+
+/**
+ * Nimmt eine Einladung mit dem angemeldeten (bestehenden) Konto an.
+ * Die Antwort enthält bereits Tokens für die neue Organisation → wie ein
+ * Organisationswechsel behandeln.
+ */
+export function useAcceptInviteExisting() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (token: string) => authApi.acceptInviteExisting(token),
+    onSuccess: (response) => {
+      const org = orgFromAuthResponse(response);
+      queryClient.clear();
+      useAuthStore.getState().setAuthWithOrg(response, org);
+      if (org) {
+        broadcastAuthEvent({
+          type: "org-switched",
+          organizationId: org.organizationId,
+        });
+        toast.success(`Willkommen bei ${org.organizationName}`);
+      }
+      navigate(org ? "/tournaments" : "/onboarding", { replace: true });
     },
   });
 }

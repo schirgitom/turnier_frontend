@@ -16,6 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TournamentStatus } from "@/types/tournament";
+import { useAuthStore } from "@/store/authStore";
 
 const STATUS_LABELS: Record<TournamentStatus, string> = {
   [TournamentStatus.Preparation]: "In Vorbereitung",
@@ -33,10 +34,12 @@ const STATUS_CLASSES: Record<TournamentStatus, string> = {
 
 export function TournamentsPage() {
   const [page, setPage] = useState(1);
+  const organizationId = useAuthStore((s) => s.activeOrg?.organizationId);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["tournaments", page],
-    queryFn: () => getTournaments({ page }),
+    queryKey: ["tournaments", organizationId, page],
+    queryFn: () => getTournaments({ page, organizationId }),
+    enabled: !!organizationId,
   });
 
   const tournaments = data?.items ?? [];
