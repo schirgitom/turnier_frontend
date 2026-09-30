@@ -35,6 +35,8 @@ export interface TournamentDto {
   participantCount: number;
   maxParticipants: number | null;
   minParticipants: number | null;
+  /** Maximale Anzahl Starts (Karten) pro Person. Wird im Backend gespeichert. */
+  maxStartsPerPerson: number;
   sportCode: string;
   formatType: string;
   participantType: ParticipantType;
@@ -54,8 +56,10 @@ export interface CreateTournamentRequest {
   location?: string;
   startDate: string;
   endDate: string;
-  maxParticipants?: number | null;
-  minParticipants?: number | null;
+  maxParticipants?: number;
+  minParticipants?: number;
+  /** Maximale Anzahl Starts pro Person (>= 1). Standard: 3. */
+  maxStartsPerPerson?: number;
   sportCode: string;
   formatType: string;
   participantType: string;
@@ -68,16 +72,14 @@ export interface CreateTournamentRequest {
 
 export interface UpdateTournamentRequest {
   name?: string;
-  slug?: string;
   description?: string;
   location?: string;
   startDate?: string;
   endDate?: string;
-  maxParticipants?: number | null;
-  minParticipants?: number | null;
-  sportCode?: string;
-  formatType?: string;
-  seeding?: boolean;
+  maxParticipants?: number;
+  minParticipants?: number;
+  /** Maximale Anzahl Starts pro Person (>= 1). */
+  maxStartsPerPerson?: number;
   visibility?: string;
   matchSetsToWinOverride?: number | null;
   matchPointsToWinOverride?: number | null;

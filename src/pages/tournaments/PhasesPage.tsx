@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useParams } from "react-router";
+﻿import { useMemo, useState } from "react";
+import { useParams, useOutletContext } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -55,6 +55,7 @@ import {
   addParticipantToGroup,
   removeParticipantFromGroup,
 } from "@/api/phases";
+import { addPaschenPhase } from "@/api/paschen";
 import { getPhaseVenues, updatePhaseVenue } from "@/api/phaseVenues";
 import {
   retimePhase,
@@ -63,9 +64,9 @@ import {
   downloadPhaseQualifiersPdf,
   downloadParticipantSchedulePdf,
 } from "@/api/scheduling";
-import type { AddPhaseVenueRequest } from "@/types/phaseVenue";
+import type { UpdatePhaseVenueRequest } from "@/types/phaseVenue";
 import { getRegistrations } from "@/api/registrations";
-import { isGroupPhase } from "@/types/phase";
+import { isGroupPhase, isPaschenPhase } from "@/types/phase";
 import type {
   PhaseResponse,
   GroupPhaseResponse,
@@ -74,6 +75,7 @@ import type {
   GenerateMatchesResponse,
   ReassignParticipantRequest,
 } from "@/types/phase";
+import { PASCHEN_RULE_DEFAULTS } from "@/types/paschen";
 import { getApiErrorMessage } from "@/api/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -101,6 +103,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PaschenPhaseCard } from "@/components/tournament/PaschenPhaseCard";
+import type { TournamentDto } from "@/types/tournament";
 
 const groupSchema = z.object({
   name: z.string().min(1, "Name ist erforderlich"),
@@ -462,8 +466,8 @@ function GroupPhaseCard({
   }
 
   const rotationMutation = useMutation({
-    mutationFn: (data: AddPhaseVenueRequest) =>
-      updatePhaseVenue(tournamentId, phase.id, firstVenue!.id, data),
+    mutationFn: (data: UpdatePhaseVenueRequest) =>
+      updatePhaseVenue(tournamentId, phase.id, firstVenue!.venueId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["phaseVenues", tournamentId, phase.id],
@@ -486,7 +490,6 @@ function GroupPhaseCard({
         }
       : null;
     rotationMutation.mutate({
-      venueId: firstVenue.venueId,
       availableFrom: firstVenue.availableFrom,
       matchDurationMinutes: firstVenue.matchDurationMinutes,
       breakBetweenMatchesMinutes: firstVenue.breakBetweenMatchesMinutes,
@@ -1358,13 +1361,13 @@ function GroupPhaseCard({
                 </Button>
                 <Button
                   disabled={!targetGroupId || reassignMutation.isPending}
-                  onClick={() =>
+                  onClick={() => {
                     reassignMutation.mutate({
                       participantId: reassignTarget.participant.participantId,
                       sourceGroupId: reassignTarget.sourceGroupId,
                       targetGroupId,
-                    })
-                  }
+                    });
+                  }}
                 >
                   {reassignMutation.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1585,9 +1588,14 @@ function showSchedulingToasts(result: GenerateMatchesResponse) {
 
 export function PhasesPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
+  const { tournament } = useOutletContext<{
+    tournament: TournamentDto | undefined;
+  }>();
+  const isPaschen = tournament?.sportCode === "paschen";
   const queryClient = useQueryClient();
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [elimDialogOpen, setElimDialogOpen] = useState(false);
+  const [paschenDialogOpen, setPaschenDialogOpen] = useState(false);
   const [generatingPhaseId, setGeneratingPhaseId] = useState<string | null>(
     null,
   );
@@ -1622,30 +1630,82 @@ export function PhasesPage() {
     },
   });
 
+  // Paschen phase form
+  const paschenSchema = z.object({
+    name: z.string().min(1, "Name ist erforderlich"),
+    phaseOrder: z.coerce.number().min(1),
+    participantCount: z.coerce.number().min(2),
+    treeCount: z.coerce.number().min(1),
+    playersPerMatch: z.coerce.number().min(2),
+    advancersPerMatch: z.coerce.number().min(1),
+    eliminationScore: z.coerce.number().min(1),
+    finalRankingSize: z.coerce.number().min(1),
+  });
+  type PaschenForm = z.infer<typeof paschenSchema>;
+
+  const paschenForm = useForm<PaschenForm>({
+    resolver: zodResolver(paschenSchema),
+    defaultValues: {
+      name: "Paschen Hauptrunde",
+      phaseOrder: nextOrder,
+      participantCount: 64,
+      treeCount: PASCHEN_RULE_DEFAULTS.treeCount,
+      playersPerMatch: PASCHEN_RULE_DEFAULTS.playersPerMatch,
+      advancersPerMatch: PASCHEN_RULE_DEFAULTS.advancersPerMatch,
+      eliminationScore: PASCHEN_RULE_DEFAULTS.eliminationScore,
+      finalRankingSize: PASCHEN_RULE_DEFAULTS.finalRankingSize,
+    },
+  });
+
+  const createPaschenMutation = useMutation({
+    mutationFn: (data: PaschenForm) =>
+      addPaschenPhase(tournamentId!, {
+        name: data.name,
+        phaseOrder: data.phaseOrder,
+        participantCount: data.participantCount,
+        rules: {
+          treeCount: data.treeCount,
+          maxPlayers: PASCHEN_RULE_DEFAULTS.maxPlayers,
+          playersPerMatch: data.playersPerMatch,
+          advancersPerMatch: data.advancersPerMatch,
+          eliminationScore: data.eliminationScore,
+          finalRankingSize: data.finalRankingSize,
+        },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
+      setPaschenDialogOpen(false);
+      paschenForm.reset();
+      toast.success("Paschen-Phase angelegt.");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
   const createGroupMutation = useMutation({
-    mutationFn: (data: GroupForm) => addGroupPhase(tournamentId!, data),
+    mutationFn: (d: GroupForm) => addGroupPhase(tournamentId!, d),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
       setGroupDialogOpen(false);
       groupForm.reset();
     },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
   const createElimMutation = useMutation({
-    mutationFn: (data: EliminationForm) =>
-      addEliminationPhase(tournamentId!, data),
+    mutationFn: (d: EliminationForm) => addEliminationPhase(tournamentId!, d),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
       setElimDialogOpen(false);
       elimForm.reset();
     },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (phaseId: string) => removePhase(tournamentId!, phaseId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] }),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
   const generateAllMutation = useMutation({
@@ -1655,9 +1715,7 @@ export function PhasesPage() {
       queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
       showSchedulingToasts(result);
     },
-    onError: (error) => {
-      toast.error(getApiErrorMessage(error));
-    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 
   const handleGeneratePhase = async (phaseId: string) => {
@@ -1667,8 +1725,8 @@ export function PhasesPage() {
       queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
       queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
       showSchedulingToasts(result);
-    } catch (error) {
-      toast.error(getApiErrorMessage(error));
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
     } finally {
       setGeneratingPhaseId(null);
     }
@@ -1692,9 +1750,16 @@ export function PhasesPage() {
       await resetPhase(tournamentId!, phaseId);
       queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
       queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
+      // Paschen: aufgeklappte Detailansicht (Bäume/Rangliste) neu laden.
+      queryClient.invalidateQueries({
+        queryKey: ["paschenPhase", tournamentId, phaseId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["paschenRanking", tournamentId, phaseId],
+      });
       toast.success("Phase wurde zurückgesetzt");
-    } catch (error) {
-      toast.error(getApiErrorMessage(error));
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
     } finally {
       setResettingPhaseId(null);
     }
@@ -1713,8 +1778,8 @@ export function PhasesPage() {
       queryClient.invalidateQueries({ queryKey: ["phases", tournamentId] });
       queryClient.invalidateQueries({ queryKey: ["matches", tournamentId] });
       toast.success("Zeiten der Phase wurden aktualisiert");
-    } catch (error) {
-      toast.error(getApiErrorMessage(error));
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
     } finally {
       setSchedulingPhaseId(null);
     }
@@ -1761,39 +1826,59 @@ export function PhasesPage() {
             )}
             Alle Phasen generieren
           </Button>
+          {!isPaschen && (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  groupForm.reset({
+                    name: "Vorrunde",
+                    phaseOrder: nextOrder,
+                    numberOfGroups: 4,
+                    qualifiersPerGroup: 2,
+                    groupFormat: "RoundRobin",
+                  });
+                  setGroupDialogOpen(true);
+                }}
+              >
+                + Gruppenphase
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  elimForm.reset({
+                    name: "K.O.-Runde",
+                    phaseOrder: nextOrder,
+                    eliminationFormat: "SingleElimination",
+                    hasThirdPlaceMatch: false,
+                  });
+                  setElimDialogOpen(true);
+                }}
+              >
+                + K.O.-Phase
+              </Button>
+            </>
+          )}
           <Button
             variant="outline"
             onClick={() => {
-              groupForm.reset({
-                name: "Vorrunde",
+              paschenForm.reset({
+                name: "Paschen Hauptrunde",
                 phaseOrder: nextOrder,
-                numberOfGroups: 4,
-                qualifiersPerGroup: 2,
-                groupFormat: "RoundRobin",
+                participantCount: 64,
+                treeCount: PASCHEN_RULE_DEFAULTS.treeCount,
+                playersPerMatch: PASCHEN_RULE_DEFAULTS.playersPerMatch,
+                advancersPerMatch: PASCHEN_RULE_DEFAULTS.advancersPerMatch,
+                eliminationScore: PASCHEN_RULE_DEFAULTS.eliminationScore,
+                finalRankingSize: PASCHEN_RULE_DEFAULTS.finalRankingSize,
               });
-              setGroupDialogOpen(true);
+              setPaschenDialogOpen(true);
             }}
           >
-            + Gruppenphase
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              elimForm.reset({
-                name: "K.O.-Runde",
-                phaseOrder: nextOrder,
-                eliminationFormat: "SingleElimination",
-                hasThirdPlaceMatch: false,
-              });
-              setElimDialogOpen(true);
-            }}
-          >
-            + K.O.-Phase
+            + Paschen-Phase
           </Button>
         </div>
       </div>
-
-
 
       {configInvalid && (
         <div className="rounded-lg border border-[#F3A83B]/30 bg-[rgba(243,168,59,0.08)] p-4">
@@ -1836,6 +1921,20 @@ export function PhasesPage() {
                   onSchedule={() => setScheduleTarget(phase)}
                   scheduling={schedulingPhaseId === phase.id}
                 />
+              ) : isPaschenPhase(phase) ? (
+                <PaschenPhaseCard
+                  key={phase.id}
+                  phase={phase}
+                  tournamentId={tournamentId!}
+                  onDelete={() => handleDelete(phase)}
+                  deleting={deleteMutation.isPending}
+                  onGenerate={() => handleGeneratePhase(phase.id)}
+                  generating={generatingPhaseId === phase.id}
+                  onReset={() => setResetTarget(phase)}
+                  resetting={resettingPhaseId === phase.id}
+                  onSchedule={() => setScheduleTarget(phase)}
+                  scheduling={schedulingPhaseId === phase.id}
+                />
               ) : (
                 <EliminationPhaseCard
                   key={phase.id}
@@ -1865,9 +1964,9 @@ export function PhasesPage() {
             <DialogTitle>Phase zurücksetzen?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Alle generierten Spiele und Gruppenzuordnungen werden gelöscht.
-            Die Phasenkonfiguration (Anzahl Gruppen, Aufsteiger etc.) bleibt
-            erhalten.
+            Alle generierten Spiele, Bäume und Gruppenzuordnungen werden
+            gelöscht. Die Phasenkonfiguration (Anzahl Gruppen bzw. Bäume,
+            Aufsteiger etc.) bleibt erhalten.
           </p>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setResetTarget(null)}>
@@ -2056,6 +2155,72 @@ export function PhasesPage() {
             <DialogFooter>
               <Button type="submit" disabled={createElimMutation.isPending}>
                 {createElimMutation.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Erstellen
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Paschen phase dialog */}
+      <Dialog open={paschenDialogOpen} onOpenChange={setPaschenDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Paschen-Phase hinzufügen</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={paschenForm.handleSubmit((d) =>
+              createPaschenMutation.mutate(d),
+            )}
+            className="space-y-4"
+          >
+            {createPaschenMutation.isError && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {getApiErrorMessage(createPaschenMutation.error)}
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="paschen-name">Name</Label>
+                <Input id="paschen-name" {...paschenForm.register("name")} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paschen-order">Reihenfolge</Label>
+                <Input id="paschen-order" type="number" min={1} {...paschenForm.register("phaseOrder")} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paschen-count">Teilnehmeranzahl</Label>
+                <Input id="paschen-count" type="number" min={2} {...paschenForm.register("participantCount")} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paschen-trees">Anzahl Bäume</Label>
+                <Input id="paschen-trees" type="number" min={1} {...paschenForm.register("treeCount")} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paschen-ppm">Spieler pro Spiel</Label>
+                <Input id="paschen-ppm" type="number" min={2} {...paschenForm.register("playersPerMatch")} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paschen-adv">Aufsteiger pro Spiel</Label>
+                <Input id="paschen-adv" type="number" min={1} {...paschenForm.register("advancersPerMatch")} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paschen-elim">Ausscheidungspunkte</Label>
+                <Input id="paschen-elim" type="number" min={1} {...paschenForm.register("eliminationScore")} />
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="paschen-ranking">Endtabellengröße</Label>
+                <Input id="paschen-ranking" type="number" min={1} {...paschenForm.register("finalRankingSize")} />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Weniger Punkte = besser. Der Spieler mit 0 Punkten ist der Beste.
+            </p>
+            <DialogFooter>
+              <Button type="submit" disabled={createPaschenMutation.isPending}>
+                {createPaschenMutation.isPending && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
                 Erstellen

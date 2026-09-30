@@ -2,16 +2,16 @@ victora.schischos-lodge.com {
   encode zstd gzip
 
   # Backend APIs (same domain)
-  handle_path /api/* {
+  handle /api/* {
     reverse_proxy backend:5000
   }
 
-  handle_path /public/* {
+  handle /public/* {
     reverse_proxy backend:5000
   }
 
   # SignalR/WebSocket
-  handle_path /hubs/* {
+  handle /hubs/* {
     reverse_proxy backend:5000
   }
 

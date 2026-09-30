@@ -11,6 +11,7 @@ export async function getParticipants(params?: {
   page?: number;
   pageSize?: number;
   search?: string;
+  excludeOrphans?: boolean;
 }): Promise<ParticipantListResponse> {
   const response = await apiClient.get<ParticipantListResponse>(
     "/participants",

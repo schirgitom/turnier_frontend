@@ -55,6 +55,8 @@ const statusLabels: Record<MatchStatus, string> = {
   [MatchStatus.Scheduled]: "Geplant",
   [MatchStatus.InProgress]: "Laufend",
   [MatchStatus.Completed]: "Abgeschlossen",
+  [MatchStatus.Bye]: "Freilos",
+  [MatchStatus.Walkover]: "Kampflos",
   [MatchStatus.Cancelled]: "Abgesagt",
 };
 
@@ -62,6 +64,8 @@ const statusClasses: Record<MatchStatus, string> = {
   [MatchStatus.Scheduled]: "bg-[rgba(87,25,75,0.08)] text-[#57194B] border-transparent",
   [MatchStatus.InProgress]: "bg-[#AF5574] text-white border-transparent",
   [MatchStatus.Completed]: "bg-[#3FA97B] text-white border-transparent",
+  [MatchStatus.Bye]: "bg-muted text-muted-foreground border-transparent",
+  [MatchStatus.Walkover]: "bg-[rgba(243,168,59,0.15)] text-[#c47e00] border-transparent",
   [MatchStatus.Cancelled]: "bg-[#D94E5F] text-white border-transparent",
 };
 

@@ -20,7 +20,7 @@ import { getTournament } from "@/api/tournaments";
 import { getRegistrations } from "@/api/registrations";
 import { getMatches } from "@/api/matches";
 import { getPhases } from "@/api/phases";
-import { isGroupPhase } from "@/types/phase";
+import { isGroupPhase, isPaschenPhase } from "@/types/phase";
 import type { PhaseResponse } from "@/types/phase";
 import { TournamentStatusTimeline } from "@/components/tournament/TournamentStatusTimeline";
 import {
@@ -265,8 +265,13 @@ export function TournamentDashboardPage() {
             <div className="space-y-4">
               {phases.map((phase) => {
                 const isGroup = isGroupPhase(phase);
+                const isPaschen = isPaschenPhase(phase);
                 const PhaseIcon = isGroup ? LayoutGrid : GitMerge;
-                const typeLabel = isGroup ? "Gruppenphase" : "K.O.-Phase";
+                const typeLabel = isGroup
+                  ? "Gruppenphase"
+                  : isPaschen
+                  ? "Paschen-Phase"
+                  : "K.O.-Phase";
                 const statusCfg = phaseStatusConfig[phase.status] ?? {
                   label: phase.status,
                   className: "bg-[rgba(87,25,75,0.1)] text-[#57194B] border-transparent",
@@ -278,10 +283,17 @@ export function TournamentDashboardPage() {
 
                 let metaLine: string | null = null;
                 if (!isPending) {
-                  if (isGroup) {
+                  if (isGroupPhase(phase)) {
                     const parts = [
                       `${phase.numberOfGroups} Gruppen`,
                       `${phase.participantCount} Teilnehmer`,
+                    ];
+                    if (phase.totalMatches) parts.push(`${phase.totalMatches} Spiele`);
+                    metaLine = parts.join(" · ");
+                  } else if (isPaschenPhase(phase)) {
+                    const parts = [
+                      `${phase.participantCount} Teilnehmer`,
+                      `${phase.treeCount} Bäume`,
                     ];
                     if (phase.totalMatches) parts.push(`${phase.totalMatches} Spiele`);
                     metaLine = parts.join(" · ");

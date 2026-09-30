@@ -1,12 +1,13 @@
 export interface ParticipantListItem {
   id: string;
-  displayName: string;
+  displayName: string | null;
   dateOfBirth: string | null;
   userId: string | null;
+  personGroupId: string | null;
 }
 
 export interface ParticipantListResponse {
-  items: ParticipantListItem[];
+  items: ParticipantListItem[] | null;
   totalCount: number;
   page: number;
   pageSize: number;

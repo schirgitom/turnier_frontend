@@ -109,7 +109,7 @@ function ProfileSection({
     defaultValues: { displayName },
   });
 
-  const onSubmit = (_data: ProfileForm) => {
+  const onSubmit = () => {
     onNotAvailable();
   };
 
@@ -175,7 +175,7 @@ function PasswordSection({
     return () => clearTimeout(id);
   }, [confirmValue, trigger]);
 
-  const onSubmit = (_data: PasswordForm) => {
+  const onSubmit = () => {
     onNotAvailable();
   };
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router";
+import { useParams, useOutletContext } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -42,6 +42,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { PhaseVenueDto, AddPhaseVenueRequest } from "@/types/phaseVenue";
 import type { VenueListItemDto } from "@/types/venue";
+import type { TournamentDto } from "@/types/tournament";
 import { isGroupPhase } from "@/types/phase";
 import type { PhaseResponse } from "@/types/phase";
 
@@ -154,10 +155,24 @@ function PhaseVenueDialog({
     courts.length > 0 && courts.every((c) => watchedCourtIds.includes(c.id));
 
   const mutation = useMutation({
-    mutationFn: (data: AddPhaseVenueRequest) =>
-      existing
-        ? updatePhaseVenue(tournamentId, phaseId, existing.id, data)
-        : addPhaseVenue(tournamentId, phaseId, data),
+    mutationFn: (data: AddPhaseVenueRequest) => {
+      if (!existing) return addPhaseVenue(tournamentId, phaseId, data);
+
+      const updateData = {
+        availableFrom: data.availableFrom,
+        matchDurationMinutes: data.matchDurationMinutes,
+        breakBetweenMatchesMinutes: data.breakBetweenMatchesMinutes,
+        schedulingStrategy: data.schedulingStrategy,
+        activeCourtIds: data.activeCourtIds,
+        venueRotation: data.venueRotation,
+      };
+      return updatePhaseVenue(
+        tournamentId,
+        phaseId,
+        existing.venueId,
+        updateData,
+      );
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["phaseVenues", tournamentId, phaseId],
@@ -688,21 +703,30 @@ type VenueCreateForm = z.infer<typeof venueCreateSchema>;
 
 export function VenuesPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
+  const { tournament } = useOutletContext<{
+    tournament: TournamentDto | undefined;
+  }>();
   const queryClient = useQueryClient();
 
   const [selectedPhaseId, setSelectedPhaseId] = useState<string | null>(null);
   const [globalOpen, setGlobalOpen] = useState(false);
   const [venueDialogOpen, setVenueDialogOpen] = useState(false);
 
+  // Paschturniere kommen ohne Spielstätten/Plätze aus – die Verwaltung ist hier
+  // nicht relevant. Der Tab wird im Layout ausgeblendet; dieser Guard fängt den
+  // direkten Aufruf über die URL ab.
+  const isPaschen = tournament?.sportCode === "paschen";
+
   const { data: phasesData, isLoading: phasesLoading } = useQuery({
     queryKey: ["phases", tournamentId],
     queryFn: () => getPhases(tournamentId!),
-    enabled: !!tournamentId,
+    enabled: !!tournamentId && !isPaschen,
   });
 
   const { data: venuesData, isLoading: venuesLoading } = useQuery({
     queryKey: ["venues"],
     queryFn: () => getVenues(),
+    enabled: !isPaschen,
   });
 
   const phases = [...(phasesData?.phases ?? [])].sort(
@@ -740,6 +764,18 @@ export function VenuesPage() {
       deleteVenueMutation.mutate(id);
     }
   };
+
+  if (isPaschen) {
+    return (
+      <div className="rounded-lg border border-dashed p-8 text-center">
+        <MapPin className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Keine Spielstätten nötig</h2>
+        <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+          Für Paschturniere werden keine Spielstätten oder Plätze benötigt.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

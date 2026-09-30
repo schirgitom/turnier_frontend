@@ -18,59 +18,42 @@ export interface TournamentRegistrationsResponse {
   totalCheckedIn: number;
 }
 
-function normalizeRegistrationsResponse(
-  tournamentId: string,
-  data: unknown,
-): TournamentRegistrationsResponse {
-  const fallback: TournamentRegistrationsResponse = {
-    tournamentId,
-    tournamentName: "",
-    registrations: [],
-    totalConfirmed: 0,
-    totalCheckedIn: 0,
-  };
+/**
+ * Request für das Anlegen einer neuen Person (ohne Account) inkl. aller Starts
+ * in einem Schritt. Ersetzt den alten 3-Schritt-Flow
+ * (Participant anlegen → registrieren → wiederholen).
+ */
+export interface BulkCreateRegistrationRequest {
+  firstName: string;
+  lastName: string;
+  /** Anzahl gekaufter Karten, 1–3. Default 1. */
+  startCount?: number;
+  /** YYYY-MM-DD */
+  dateOfBirth?: string | null;
+  phoneNumber?: string | null;
+  notes?: string | null;
+}
 
-  if (!data || typeof data !== "object") return fallback;
+export interface BulkCreateStartDto {
+  participantId: string;
+  displayName: string;
+  startNumber: number;
+  registeredAt: string;
+}
 
-  const obj = data as {
-    tournamentId?: unknown;
-    tournamentName?: unknown;
-    registrations?: unknown;
-    items?: unknown;
-    totalConfirmed?: unknown;
-    totalCheckedIn?: unknown;
-  };
-
-  const registrations = Array.isArray(obj.registrations)
-    ? (obj.registrations as RegistrationDto[])
-    : Array.isArray(obj.items)
-      ? (obj.items as RegistrationDto[])
-      : [];
-
-  return {
-    tournamentId:
-      typeof obj.tournamentId === "string" ? obj.tournamentId : tournamentId,
-    tournamentName:
-      typeof obj.tournamentName === "string" ? obj.tournamentName : "",
-    registrations,
-    totalConfirmed:
-      typeof obj.totalConfirmed === "number"
-        ? obj.totalConfirmed
-        : registrations.filter((r) => r.status === "Confirmed").length,
-    totalCheckedIn:
-      typeof obj.totalCheckedIn === "number"
-        ? obj.totalCheckedIn
-        : registrations.filter((r) => r.isCheckedIn).length,
-  };
+export interface BulkCreateRegistrationResponse {
+  tournamentId: string;
+  personDisplayName: string;
+  starts: BulkCreateStartDto[];
 }
 
 export async function getRegistrations(
   tournamentId: string,
 ): Promise<TournamentRegistrationsResponse> {
-  const response = await apiClient.get<unknown>(
+  const response = await apiClient.get<TournamentRegistrationsResponse>(
     `/tournaments/${tournamentId}/registrations`,
   );
-  return normalizeRegistrationsResponse(tournamentId, response.data);
+  return response.data;
 }
 
 export async function registerParticipant(
