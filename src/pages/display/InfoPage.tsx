@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -18,7 +18,11 @@ import type { GroupStandings } from "@/types/standings";
 import { cn } from "@/lib/utils";
 import { isGroupPhase } from "@/types/phase";
 import { isEliminationBracket } from "@/types/bracket";
-import type { EliminationBracketResponse, GroupMatchesResponse } from "@/types/bracket";
+import type {
+  EliminationBracketResponse,
+  GroupMatchesResponse,
+  GroupMatchDto,
+} from "@/types/bracket";
 
 const STATUS_LABELS: Record<string, string> = {
   Scheduled: "Geplant",
@@ -45,6 +49,16 @@ interface KoPhaseEntry {
   data: EliminationBracketResponse | null;
 }
 
+interface GroupTabEntry {
+  key: string;
+  phaseId: string;
+  phaseName: string;
+  groupId: string;
+  groupName: string;
+  standings?: GroupStandings;
+  matches: GroupMatchDto[];
+}
+
 type TabId = "search" | "standings" | "ko";
 
 function displayPhaseName(name: string): string {
@@ -67,6 +81,7 @@ export function InfoPage() {
   const [search, setSearch] = useState("");
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("search");
+  const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
 
   const { data: tournament, error: tournamentError } = useQuery({
     queryKey: ["info", tournamentId, "tournament"],
@@ -151,6 +166,68 @@ export function InfoPage() {
     }
     return result;
   }, [standingsQueries, phaseById]);
+
+  const groupTabEntries = useMemo(() => {
+    const entries: GroupTabEntry[] = [];
+    const seen = new Set<string>();
+
+    const standingsByKey = new Map(
+      allPhaseGroups.map((pg) => [`${pg.phaseId}:${pg.group.groupId}`, pg]),
+    );
+
+    groupPhases.forEach((phase) => {
+      const phaseIndex = phases.findIndex((p) => p.id === phase.id);
+      const data = phaseIndex >= 0 ? phaseMatchesQueries[phaseIndex]?.data : undefined;
+
+      if (!data || isEliminationBracket(data)) return;
+
+      (data as GroupMatchesResponse[]).forEach((group) => {
+        const key = `${phase.id}:${group.groupId}`;
+        seen.add(key);
+        entries.push({
+          key,
+          phaseId: phase.id,
+          phaseName: displayPhaseName(phase.name),
+          groupId: group.groupId,
+          groupName: group.groupName,
+          standings: standingsByKey.get(key)?.group,
+          matches: group.matches,
+        });
+      });
+    });
+
+    allPhaseGroups.forEach((pg) => {
+      const key = `${pg.phaseId}:${pg.group.groupId}`;
+      if (seen.has(key)) return;
+      entries.push({
+        key,
+        phaseId: pg.phaseId,
+        phaseName: pg.phaseName,
+        groupId: pg.group.groupId,
+        groupName: pg.group.groupName,
+        standings: pg.group,
+        matches: [],
+      });
+    });
+
+    return entries.sort((a, b) => {
+      const phaseCompare = a.phaseName.localeCompare(b.phaseName, "de");
+      if (phaseCompare !== 0) return phaseCompare;
+      return a.groupName.localeCompare(b.groupName, "de");
+    });
+  }, [allPhaseGroups, groupPhases, phaseMatchesQueries, phases]);
+
+  useEffect(() => {
+    if (groupTabEntries.length === 0) {
+      setSelectedGroupKey(null);
+      return;
+    }
+
+    if (!selectedGroupKey || !groupTabEntries.some((entry) => entry.key === selectedGroupKey)) {
+      const firstEntry = groupTabEntries[0];
+      if (firstEntry) setSelectedGroupKey(firstEntry.key);
+    }
+  }, [groupTabEntries, selectedGroupKey]);
 
   const matchMetaById = useMemo(() => {
     const meta = new Map<string, MatchMeta>();
@@ -355,7 +432,11 @@ export function InfoPage() {
 
         {/* Tabellen tab */}
         {activeTab === "standings" && (
-          <StandingsTabView phaseGroups={allPhaseGroups} />
+          <StandingsTabView
+            groupEntries={groupTabEntries}
+            selectedGroupKey={selectedGroupKey}
+            onSelectGroup={setSelectedGroupKey}
+          />
         )}
 
         {/* KO-Phase tab */}
@@ -369,24 +450,69 @@ export function InfoPage() {
 
 // ─── Standings Tab ────────────────────────────────────────────────────────────
 
-function StandingsTabView({ phaseGroups }: { phaseGroups: PhaseGroup[] }) {
-  if (phaseGroups.length === 0) {
+function StandingsTabView({
+  groupEntries,
+  selectedGroupKey,
+  onSelectGroup,
+}: {
+  groupEntries: GroupTabEntry[];
+  selectedGroupKey: string | null;
+  onSelectGroup: (key: string) => void;
+}) {
+  if (groupEntries.length === 0) {
     return (
       <p className="py-8 text-center text-muted-foreground">
-        Noch keine Tabellendaten vorhanden.
+        Noch keine Gruppen vorhanden.
       </p>
     );
   }
 
+  const selectedGroup =
+    groupEntries.find((entry) => entry.key === selectedGroupKey) ?? groupEntries[0];
+
+  if (!selectedGroup) {
+    return (
+      <p className="py-8 text-center text-muted-foreground">
+        Noch keine Gruppen vorhanden.
+      </p>
+    );
+  }
+
+  const selectedMatches = [...selectedGroup.matches].sort((a, b) => {
+    const roundDiff = (a.round ?? 0) - (b.round ?? 0);
+    if (roundDiff !== 0) return roundDiff;
+    const ta = a.scheduledAt ?? "";
+    const tb = b.scheduledAt ?? "";
+    return ta.localeCompare(tb);
+  });
+
   return (
     <div className="space-y-6">
-      {phaseGroups.map(({ phaseName, group }) => (
-        <div key={group.groupId} className="rounded-lg border">
-          <div className="border-b bg-muted/50 px-4 py-2.5">
-            <h3 className="font-semibold">
-              {phaseName} · {group.groupName.replace("Group", "Gruppe")}
-            </h3>
-          </div>
+      <div className="space-y-2">
+        <label htmlFor="group-select" className="text-sm font-medium">
+          Gruppe auswahlen
+        </label>
+        <select
+          id="group-select"
+          value={selectedGroup.key}
+          onChange={(e) => onSelectGroup(e.target.value)}
+          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+        >
+          {groupEntries.map((entry) => (
+            <option key={entry.key} value={entry.key}>
+              {entry.phaseName} - {entry.groupName.replace("Group", "Gruppe")}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="rounded-lg border">
+        <div className="border-b bg-muted/50 px-4 py-2.5">
+          <h3 className="font-semibold">
+            {selectedGroup.phaseName} · {selectedGroup.groupName.replace("Group", "Gruppe")}
+          </h3>
+        </div>
+        {selectedGroup.standings ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -402,7 +528,7 @@ function StandingsTabView({ phaseGroups }: { phaseGroups: PhaseGroup[] }) {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {group.standings.map((entry) => (
+                {selectedGroup.standings.standings.map((entry) => (
                   <tr key={entry.participantId} className={cn(entry.isQualified && "bg-[rgba(63,169,123,0.05)]")}>
                     <td className="px-3 py-2.5 font-bold">{entry.rank}</td>
                     <td className="px-3 py-2.5">
@@ -426,8 +552,54 @@ function StandingsTabView({ phaseGroups }: { phaseGroups: PhaseGroup[] }) {
               </tbody>
             </table>
           </div>
+        ) : (
+          <p className="px-4 py-6 text-sm text-muted-foreground">
+            Noch keine Tabellendaten fur diese Gruppe vorhanden.
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-lg border">
+        <div className="border-b bg-muted/50 px-4 py-2.5">
+          <h3 className="font-semibold">Spiele der Gruppe</h3>
         </div>
-      ))}
+        {selectedMatches.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-muted-foreground">
+            Noch keine Gruppenspiele vorhanden.
+          </p>
+        ) : (
+          <div className="divide-y">
+            {selectedMatches.map((match) => {
+              const scoreText = match.score
+                ? `${match.score.homePoints}:${match.score.awayPoints}`
+                : "-:-";
+
+              return (
+                <div key={match.id} className="px-4 py-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate font-medium">
+                      {match.homeParticipantName ?? "TBD"}
+                    </span>
+                    <span className="shrink-0 font-semibold">{scoreText}</span>
+                    <span className="truncate text-right font-medium">
+                      {match.awayParticipantName ?? "TBD"}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span>Runde {match.round}</span>
+                    {match.scheduledAt && (
+                      <span>
+                        {format(new Date(match.scheduledAt), "dd.MM. HH:mm")}
+                      </span>
+                    )}
+                    <span>{STATUS_LABELS[match.status] ?? match.status}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

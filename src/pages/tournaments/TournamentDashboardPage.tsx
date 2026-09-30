@@ -159,7 +159,7 @@ export function TournamentDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-[#57194B]">
-                {registrationsData?.registrations.length ?? 0}
+                {registrationsData?.registrations?.length ?? 0}
               </div>
               <p className="text-xs text-[#AF5574]">
                 {registrationsData?.totalConfirmed ?? 0} bestätigt

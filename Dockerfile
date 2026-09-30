@@ -15,6 +15,7 @@ COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY --from=build /app/dist /usr/share/nginx/html
 
+RUN sed -i 's/\r$//' /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 80

@@ -19,6 +19,7 @@ import { MatchStatus } from "@/types/match";
 import type { MatchDto } from "@/types/match";
 import { isGroupPhase } from "@/types/phase";
 import { isEliminationBracket } from "@/types/bracket";
+import type { GroupMatchesResponse } from "@/types/bracket";
 import type { PhaseResponse } from "@/types/phase";
 import type { GroupStandings } from "@/types/standings";
 import { cn } from "@/lib/utils";
@@ -97,6 +98,14 @@ const MATCH_STATUS_LABELS: Record<string, string> = {
   Cancelled: "Abgesagt",
 };
 
+function displayPhaseName(name: string): string {
+  return name.replace(/^Group\s*/i, "Gruppe ").trim();
+}
+
+function displayGroupName(name: string): string {
+  return name.replace(/^Group\s*/i, "Gruppe ").trim();
+}
+
 export function PublicTournamentPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
 
@@ -121,6 +130,39 @@ export function PublicTournamentPage() {
   });
 
   const phases = phasesData?.phases ?? [];
+
+  const groupPhases = useMemo(
+    () => phases.filter((p) => isGroupPhase(p)),
+    [phases],
+  );
+
+  const groupPhaseMatchesQueries = useQueries({
+    queries: groupPhases.map((phase) => ({
+      queryKey: ["public-group-matches", tournamentId, phase.id],
+      queryFn: () => getPhaseMatches(tournamentId!, phase.id),
+      enabled: !!tournamentId,
+      retry: false,
+      refetchInterval: 30000,
+    })),
+  });
+
+  const groupLabelByMatchId = useMemo(() => {
+    const labels = new Map<string, string>();
+
+    groupPhases.forEach((phase, i) => {
+      const data = groupPhaseMatchesQueries[i]?.data;
+      if (!data || isEliminationBracket(data)) return;
+
+      (data as GroupMatchesResponse[]).forEach((group) => {
+        const label = `${displayPhaseName(phase.name)} · ${displayGroupName(group.groupName)}`;
+        group.matches.forEach((match) => {
+          labels.set(match.id, label);
+        });
+      });
+    });
+
+    return labels;
+  }, [groupPhases, groupPhaseMatchesQueries]);
 
   if (loadingTournament) {
     return (
@@ -189,7 +231,10 @@ export function PublicTournamentPage() {
         </TabsList>
 
         <TabsContent value="matches" className="mt-4">
-          <MatchesTab matches={matches ?? []} />
+          <MatchesTab
+            matches={matches ?? []}
+            groupLabelByMatchId={groupLabelByMatchId}
+          />
         </TabsContent>
 
         <TabsContent value="standings" className="mt-4">
@@ -206,9 +251,16 @@ export function PublicTournamentPage() {
 
 // ─── Matches tab ─────────────────────────────────────────────────────────────
 
-function MatchesTab({ matches }: { matches: MatchDto[] }) {
+function MatchesTab({
+  matches,
+  groupLabelByMatchId,
+}: {
+  matches: MatchDto[];
+  groupLabelByMatchId: Map<string, string>;
+}) {
   const [filter, setFilter] = useState<"all" | "live" | "scheduled" | "completed">("all");
   const [participantFilter, setParticipantFilter] = useState("");
+  const [groupFilter, setGroupFilter] = useState("all");
 
   const participants = useMemo(() => {
     const names = new Set<string>();
@@ -219,6 +271,16 @@ function MatchesTab({ matches }: { matches: MatchDto[] }) {
     }
     return [...names].sort((a, b) => a.localeCompare(b, "de"));
   }, [matches]);
+
+  const groupOptions = useMemo(() => {
+    const groups = new Set<string>();
+    for (const match of matches) {
+      if (isByeMatch(match)) continue;
+      const label = groupLabelByMatchId.get(match.id);
+      if (label) groups.add(label);
+    }
+    return [...groups].sort((a, b) => a.localeCompare(b, "de"));
+  }, [matches, groupLabelByMatchId]);
 
   const filtered = useMemo(() => {
     const visibleMatches = matches.filter((m) => !isByeMatch(m));
@@ -244,8 +306,21 @@ function MatchesTab({ matches }: { matches: MatchDto[] }) {
         m.awayParticipantName?.toLowerCase().includes(query),
     );
 
-    return [...participantFiltered].sort(compareMatches);
-  }, [matches, filter, participantFilter]);
+    const groupFiltered =
+      groupFilter === "all"
+        ? participantFiltered
+        : participantFiltered.filter(
+          (m) => groupLabelByMatchId.get(m.id) === groupFilter,
+        );
+
+    return [...groupFiltered].sort((a, b) => {
+      const groupA = groupLabelByMatchId.get(a.id) ?? "";
+      const groupB = groupLabelByMatchId.get(b.id) ?? "";
+      const byGroup = groupA.localeCompare(groupB, "de");
+      if (byGroup !== 0) return byGroup;
+      return compareMatches(a, b);
+    });
+  }, [matches, filter, participantFilter, groupFilter, groupLabelByMatchId]);
 
   const liveCount = matches.filter((m) => !isByeMatch(m) && m.status === MatchStatus.InProgress).length;
 
@@ -288,6 +363,27 @@ function MatchesTab({ matches }: { matches: MatchDto[] }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        {groupOptions.length > 0 && (
+          <>
+            <label className="text-sm text-muted-foreground" htmlFor="groupFilter">
+              Gruppe:
+            </label>
+            <select
+              id="groupFilter"
+              value={groupFilter}
+              onChange={(e) => setGroupFilter(e.target.value)}
+              className="h-9 min-w-56 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="all">Alle</option>
+              {groupOptions.map((group) => (
+                <option key={group} value={group}>
+                  {group}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+
         <label className="text-sm text-muted-foreground" htmlFor="participantFilter">
           Teilnehmer:
         </label>
@@ -323,6 +419,7 @@ function MatchesTab({ matches }: { matches: MatchDto[] }) {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-44">Gruppe</TableHead>
               <TableHead className="w-16">Zeit</TableHead>
               <TableHead>Heim</TableHead>
               <TableHead className="w-28 text-center">Ergebnis</TableHead>
@@ -347,6 +444,9 @@ function MatchesTab({ matches }: { matches: MatchDto[] }) {
 
               return (
                 <TableRow key={match.id}>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {groupLabelByMatchId.get(match.id) ?? "–"}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {match.scheduledAt
                       ? format(new Date(match.scheduledAt), "HH:mm")

@@ -19,13 +19,55 @@ export interface AdvancePhaseResponse {
 
 const base = (tournamentId: string) => `/tournaments/${tournamentId}/phases`;
 
+function normalizePhasesResponse(data: unknown): TournamentPhasesResponse {
+  const fallback: TournamentPhasesResponse = {
+    tournamentId: "",
+    tournamentName: "",
+    phases: [],
+    isConfigurationValid: true,
+    validationErrors: [],
+  };
+
+  if (!data || typeof data !== "object") return fallback;
+
+  const obj = data as {
+    tournamentId?: unknown;
+    tournamentName?: unknown;
+    phases?: unknown;
+    items?: unknown;
+    isConfigurationValid?: unknown;
+    validationErrors?: unknown;
+  };
+
+  const phases = Array.isArray(obj.phases)
+    ? (obj.phases as PhaseResponse[])
+    : Array.isArray(obj.items)
+      ? (obj.items as PhaseResponse[])
+      : [];
+
+  return {
+    tournamentId:
+      typeof obj.tournamentId === "string" ? obj.tournamentId : "",
+    tournamentName:
+      typeof obj.tournamentName === "string" ? obj.tournamentName : "",
+    phases,
+    isConfigurationValid:
+      typeof obj.isConfigurationValid === "boolean"
+        ? obj.isConfigurationValid
+        : true,
+    validationErrors: Array.isArray(obj.validationErrors)
+      ? (obj.validationErrors as string[])
+      : [],
+  };
+}
+
 export async function getPhases(
   tournamentId: string,
 ): Promise<TournamentPhasesResponse> {
-  const response = await apiClient.get<TournamentPhasesResponse>(
+  const response = await apiClient.get<unknown>(
     base(tournamentId),
   );
-  return response.data;
+  return normalizePhasesResponse(response.data);
 }
 
 export async function getPhase(
