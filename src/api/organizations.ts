@@ -1,6 +1,7 @@
 import { apiClient } from "./client";
 import type {
   CreateOrganizationRequest,
+  AddOrganizationMemberRequest,
   OrganizationDto,
   OrganizationMemberDto,
   OrganizationInvitationDto,
@@ -33,6 +34,17 @@ export async function getOrganization(id: string): Promise<OrganizationDto> {
 export async function getCurrentMembers(): Promise<OrganizationMemberDto[]> {
   const response = await apiClient.get<OrganizationMemberDto[]>(
     "/organizations/current/members",
+  );
+  return response.data;
+}
+
+/** 403 = kein Admin, 404 = Benutzer nicht gefunden, 422 = ungültige Rolle oder bereits Mitglied. */
+export async function addCurrentMember(
+  data: AddOrganizationMemberRequest,
+): Promise<OrganizationMemberDto> {
+  const response = await apiClient.post<OrganizationMemberDto>(
+    "/organizations/current/members",
+    data,
   );
   return response.data;
 }

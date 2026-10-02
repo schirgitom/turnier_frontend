@@ -31,6 +31,19 @@ export interface InviteUserRequest {
   role: string;
 }
 
+export interface AddOrganizationMemberRequest {
+  email: string;
+  role: DirectAssignableRole;
+}
+
+export const DIRECT_ASSIGNABLE_ROLES = [
+  "TournamentDirector",
+  "Referee",
+  "Viewer",
+] as const;
+
+export type DirectAssignableRole = (typeof DIRECT_ASSIGNABLE_ROLES)[number];
+
 /** Antwort auf POST /api/auth/invite. Bereits Mitglied → 409. */
 export interface InviteUserResponse {
   status: string;
@@ -153,6 +166,8 @@ export interface InviteInfoDto {
 }
 
 export interface OrganizationMemberDto {
+  /** ID der Mitgliedschaft (nicht die Benutzer-ID). */
+  id: string;
   userId: string;
   displayName: string;
   email: string;

@@ -11,6 +11,7 @@ import {
   Plus,
   Loader2,
   UserPlus,
+  Users,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useLogout, useSwitchOrganization } from "@/hooks/useAuth";
@@ -28,6 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/types/auth";
 import { InviteUserDialog } from "@/components/organization/InviteUserDialog";
+import { AddExistingMemberDialog } from "@/components/organization/AddExistingMemberDialog";
 
 const ADMIN_ROLES = ["Admin", "Owner"];
 
@@ -41,6 +43,7 @@ export function AppLayout() {
   const logoutMutation = useLogout();
   const switchMutation = useSwitchOrganization();
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
 
   const { data: memberships } = useQuery({
     queryKey: ["my-organizations"],
@@ -61,6 +64,9 @@ export function AppLayout() {
     : "?";
 
   const canInvite = ADMIN_ROLES.includes(activeOrg.role);
+  const visibleNavItems = canInvite
+    ? [...navItems, { to: "/members", label: "Mitglieder", icon: Users }]
+    : navItems;
 
   const headerButton =
     "gap-2 text-[rgba(255,255,255,0.8)] hover:bg-sidebar-accent hover:text-white";
@@ -79,7 +85,7 @@ export function AppLayout() {
         </Link>
 
         <nav className="flex items-center gap-1">
-          {navItems.map(({ to, label, icon: Icon }) => (
+          {visibleNavItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -148,6 +154,12 @@ export function AppLayout() {
                   Person einladen
                 </DropdownMenuItem>
               )}
+              {canInvite && (
+                <DropdownMenuItem onClick={() => setAddMemberOpen(true)}>
+                  <UserPlus className="h-4 w-4" />
+                  Bestehenden Benutzer hinzufügen
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => navigate("/onboarding")}>
                 <Plus className="h-4 w-4" />
                 Organisation erstellen / beitreten
@@ -208,6 +220,13 @@ export function AppLayout() {
           organizationName={activeOrg.organizationName}
           open={inviteOpen}
           onOpenChange={setInviteOpen}
+        />
+      )}
+      {canInvite && (
+        <AddExistingMemberDialog
+          organizationName={activeOrg.organizationName}
+          open={addMemberOpen}
+          onOpenChange={setAddMemberOpen}
         />
       )}
     </div>
