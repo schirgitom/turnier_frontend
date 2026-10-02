@@ -1,9 +1,12 @@
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, Users } from "lucide-react";
-import { getCurrentMembers } from "@/api/organizations";
-import { getApiErrorMessage } from "@/api/client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Trash2, Users } from "lucide-react";
+import {
+  getCurrentMembers,
+  removeMember,
+} from "@/api/organizations";
+import { getApiErrorMessage, getApiErrorStatus } from "@/api/client";
 import { AddExistingMemberDialog } from "@/components/organization/AddExistingMemberDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,20 +24,50 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { isAdminRole, roleLabel } from "@/types/auth";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { isAdminRole, roleLabel, type OrganizationMemberDto } from "@/types/auth";
 import { useAuthStore } from "@/store/authStore";
 import { CURRENT_MEMBERS_QUERY_KEY } from "@/components/organization/AddExistingMemberDialog";
 import { useState } from "react";
+import { toast } from "sonner";
 
 export function MembersPage() {
   const activeOrg = useAuthStore((state) => state.activeOrg);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [memberToRemove, setMemberToRemove] =
+    useState<OrganizationMemberDto | null>(null);
+  const queryClient = useQueryClient();
   const isAdmin = isAdminRole(activeOrg?.role);
 
   const membersQuery = useQuery({
     queryKey: CURRENT_MEMBERS_QUERY_KEY,
     queryFn: getCurrentMembers,
     enabled: isAdmin,
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (userId: string) => removeMember(userId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: CURRENT_MEMBERS_QUERY_KEY,
+      });
+      setMemberToRemove(null);
+      toast.success("Mitglied wurde entfernt.");
+    },
+    onError: (error) => {
+      toast.error(
+        getApiErrorStatus(error) === 409
+          ? "Der letzte Admin der Organisation kann nicht entfernt werden."
+          : getApiErrorMessage(error),
+      );
+    },
   });
 
   if (!isAdmin || !activeOrg) {
@@ -90,6 +123,7 @@ export function MembersPage() {
                   <TableHead>E-Mail</TableHead>
                   <TableHead>Rolle</TableHead>
                   <TableHead>Beigetreten</TableHead>
+                  <TableHead className="w-16 text-right">Aktion</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -105,6 +139,18 @@ export function MembersPage() {
                         locale: de,
                       })}
                     </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`${member.displayName} entfernen`}
+                        title="Mitglied entfernen"
+                        onClick={() => setMemberToRemove(member)}
+                        disabled={removeMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -118,7 +164,48 @@ export function MembersPage() {
         open={addMemberOpen}
         onOpenChange={setAddMemberOpen}
       />
+
+      <Dialog
+        open={memberToRemove !== null}
+        onOpenChange={(open) => {
+          if (!open && !removeMutation.isPending) setMemberToRemove(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mitglied entfernen?</DialogTitle>
+            <DialogDescription>
+              {memberToRemove?.displayName} ({memberToRemove?.email}) verliert
+              damit sofort den Zugriff auf diese Organisation.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setMemberToRemove(null)}
+              disabled={removeMutation.isPending}
+            >
+              Abbrechen
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (memberToRemove) {
+                  removeMutation.mutate(memberToRemove.userId);
+                }
+              }}
+              disabled={removeMutation.isPending}
+            >
+              {removeMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Entfernen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
 
